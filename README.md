@@ -3,7 +3,7 @@
 ## Overview
 
 DDCSR is a deep learning-based framework for cortical surface reconstruction from Diffusion MRI (dMRI) data.
-This repository will contain the source code for DDCSR.
+This repository will contain the source code for DDCSR. Paper link (arXiv version): https://arxiv.org/pdf/2503.03790v1
 
 ## Upcoming Release
 
