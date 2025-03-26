@@ -182,57 +182,59 @@ class CMUNeXt3D(nn.Module):
 
         return d1
 
+"""
+Test the model with random input tensor 
+"""
+# if __name__ == '__main__':
+#     # 配置参数
+#     batch_size = 1
+#     in_channels = 7       # 输入通道数
+#     num_classes = 2        # 输出类别数
+#     input_shape = (112, 224, 176)  # (depth, height, width)
 
-if __name__ == '__main__':
-    # 配置参数
-    batch_size = 1
-    in_channels = 7       # 输入通道数
-    num_classes = 2        # 输出类别数
-    input_shape = (112, 224, 176)  # (depth, height, width)
+#     # 初始化模型
+#     model = CMUNeXt3D(
+#         input_channel=in_channels,
+#         num_classes=num_classes,
+#         dims=[16, 32, 64, 128, 256],  # 调整通道数适应输入尺寸
+#         depths=[1, 1, 1, 2, 1],
+#         kernels=[3, 3, 5, 5, 5]       # 减小高层kernel尺寸
+#     )
 
-    # 初始化模型
-    model = CMUNeXt3D(
-        input_channel=in_channels,
-        num_classes=num_classes,
-        dims=[16, 32, 64, 128, 256],  # 调整通道数适应输入尺寸
-        depths=[1, 1, 1, 2, 1],
-        kernels=[3, 3, 5, 5, 5]       # 减小高层kernel尺寸
-    )
+#     # 生成测试输入 (batch, channel, depth, height, width)
+#     test_input = torch.randn(batch_size, in_channels, *input_shape)
+#     print(f"输入尺寸: {test_input.shape}")
 
-    # 生成测试输入 (batch, channel, depth, height, width)
-    test_input = torch.randn(batch_size, in_channels, *input_shape)
-    print(f"输入尺寸: {test_input.shape}")
-
-    # 前向传播测试
-    try:
-        output = model(test_input)
-        print(f"\n输出尺寸: {output.shape}")
-        print("尺寸验证结果: 运行成功!")
+#     # 前向传播测试
+#     try:
+#         output = model(test_input)
+#         print(f"\n输出尺寸: {output.shape}")
+#         print("尺寸验证结果: 运行成功!")
         
-        # 验证输入输出尺寸匹配
-        assert output.shape[2:] == test_input.shape[2:], "空间尺寸不匹配!"
-        assert output.shape[1] == num_classes, "输出通道数错误!"
+#         # 验证输入输出尺寸匹配
+#         assert output.shape[2:] == test_input.shape[2:], "空间尺寸不匹配!"
+#         assert output.shape[1] == num_classes, "输出通道数错误!"
         
-    except Exception as e:
-        print(f"\n错误信息: {str(e)}")
-        print("尺寸验证结果: 运行失败!")
+#     except Exception as e:
+#         print(f"\n错误信息: {str(e)}")
+#         print("尺寸验证结果: 运行失败!")
 
-    # 各层尺寸调试信息
-    print("\n各层尺寸变化追踪：")
+#     # 各层尺寸调试信息
+#     print("\n各层尺寸变化追踪：")
     
-    def print_shape(module, input, output):
-        print(f"{module.__class__.__name__:20} | 输入: {tuple(input[0].shape)} → 输出: {tuple(output.shape)}")
+#     def print_shape(module, input, output):
+#         print(f"{module.__class__.__name__:20} | 输入: {tuple(input[0].shape)} → 输出: {tuple(output.shape)}")
 
-    # 注册hook跟踪关键层
-    hooks = []
-    for name, layer in model.named_modules():
-        if isinstance(layer, (conv_block_3d, CMUNeXtBlock3D, fusion_conv_3d, up_conv_3d)):
-            hook = layer.register_forward_hook(print_shape)
-            hooks.append(hook)
+#     # 注册hook跟踪关键层
+#     hooks = []
+#     for name, layer in model.named_modules():
+#         if isinstance(layer, (conv_block_3d, CMUNeXtBlock3D, fusion_conv_3d, up_conv_3d)):
+#             hook = layer.register_forward_hook(print_shape)
+#             hooks.append(hook)
 
-    # 再次运行带跟踪的前向传播
-    _ = model(test_input)
+#     # 再次运行带跟踪的前向传播
+#     _ = model(test_input)
     
-    # 移除hook
-    for hook in hooks:
-        hook.remove()
+#     # 移除hook
+#     for hook in hooks:
+#         hook.remove()
