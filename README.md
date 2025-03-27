@@ -14,7 +14,7 @@ Thank you for your patience and support.
 
 ## Acknowledgments
 
-This work is supported in part by National Key R&D Program of China (No. 2023YFE0118600), National Nat-ural Science Foundation of China (No. 62371107), National Institutes of Health (R01MH108574, P41EB015902, R01MH074794, R01MH125860, R01MH119222, R01MH132610, R01NS125781).
+This work is supported in part by National Key R&D Program of China (No. 2023YFE0118600), National Natural Science Foundation of China (No. 62371107), National Institutes of Health (R01MH108574, P41EB015902, R01MH074794, R01MH125860, R01MH119222, R01MH132610, R01NS125781).
 
 
 ## Citation
