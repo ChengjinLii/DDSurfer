@@ -1,4 +1,4 @@
-# DDCSR
+# DDCSR & DDSurfer
 
 ## Overview
 
