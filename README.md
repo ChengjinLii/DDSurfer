@@ -6,6 +6,8 @@ DDSurfer is a deep learning-based framework for cortical surface reconstruction 
 This repository will contain the source code for DDCSR. 
 Paper link (arXiv version): https://arxiv.org/pdf/2503.03790v1.
 
+![Uploading d33554bc2594ae222b6177a69c740dc0.png…]()
+
 ## Upcoming Release
 
 The code for DDSurfer will be shared soon. Stay tuned for updates and the upcoming release!
