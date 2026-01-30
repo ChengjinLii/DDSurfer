@@ -1,0 +1,11 @@
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Data and outputs
+DTI-inputs/
+data_Reg/
+pred_results_DDSurfer/
+logs/
+tmp/
