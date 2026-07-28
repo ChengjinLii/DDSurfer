@@ -41,7 +41,13 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--input-root",
         type=Path,
         default=PROJECT_ROOT / "DTI-inputs",
-        help="Directory containing subject-specific DTI inputs.",
+        help="Directory containing subject-specific registered DTI inputs.",
+    )
+    parser.add_argument(
+        "--raw-input-root",
+        type=Path,
+        default=PROJECT_ROOT / "raw-dwi-inputs",
+        help="Directory containing raw diffusion inputs under <ID>/T1w/Diffusion.",
     )
     parser.add_argument(
         "--output-root",
@@ -86,6 +92,8 @@ def build_preprocessing_command(args: argparse.Namespace) -> List[str]:
         str(PROJECT_ROOT / "Data-Preprocessing.sh"),
         "--subject",
         args.subject,
+        "--raw-input-root",
+        str(args.raw_input_root),
         "--input-root",
         str(args.input_root),
         "--output-root",

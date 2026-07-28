@@ -9,3 +9,6 @@ data_Reg/
 pred_results_DDSurfer/
 logs/
 tmp/
+
+# Local training helper
+Data-Preprocessing-training.sh

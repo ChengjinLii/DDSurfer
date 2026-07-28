@@ -16,6 +16,7 @@ DATA_TYPE="hcp"
 DEVICE="cuda:0"
 PREDICT_MODE="all"
 INPUT_ROOT="$PROJECT_ROOT/DTI-inputs"
+RAW_INPUT_ROOT="$PROJECT_ROOT/raw-dwi-inputs"
 OUTPUT_ROOT="$PROJECT_ROOT/data_Reg/test"
 PREDICTIONS_DIR="$PROJECT_ROOT/pred_results_DDSurfer"
 SKIP_PREPROCESSING=0
@@ -31,7 +32,8 @@ Required:
 Options:
       --data-type <name>     Dataset key passed to prediction scripts (default: hcp).
       --device <target>      Torch device, e.g. cuda:0 or cpu (default: cuda:0).
-      --input-root <path>    Directory containing subject DTI inputs (default: ./DTI-inputs).
+      --raw-input-root <path> Root with raw diffusion inputs under <ID>/T1w/Diffusion.
+      --input-root <path>    Directory containing registered DTI inputs (default: ./DTI-inputs).
       --output-root <path>   Directory for preprocessing outputs (default: ./data_Reg/test).
       --predictions-dir <path> Directory for predicted meshes (default: ./pred_results_DDSurfer).
       --predict-mode <mode>  Prediction mode for TANet: wm or all (default: all).
@@ -51,6 +53,8 @@ while (($#)); do
       DATA_TYPE=$2; shift 2 ;;
     --device)
       DEVICE=$2; shift 2 ;;
+    --raw-input-root)
+      RAW_INPUT_ROOT=$2; shift 2 ;;
     --input-root)
       INPUT_ROOT=$2; shift 2 ;;
     --output-root)
@@ -86,6 +90,7 @@ run_cmd() {
 if [[ $SKIP_PREPROCESSING -eq 0 ]]; then
   run_cmd bash "$PROJECT_ROOT/Data-Preprocessing.sh" \
     --subject "$SUBJECT_ID" \
+    --raw-input-root "$RAW_INPUT_ROOT" \
     --input-root "$INPUT_ROOT" \
     --output-root "$OUTPUT_ROOT"
 else
