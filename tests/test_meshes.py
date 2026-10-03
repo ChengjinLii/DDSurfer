@@ -8,7 +8,7 @@ import SimpleITK as sitk
 import trimesh
 
 from inference.coordinates import export_crop_mesh, Geometry
-from inference.meshes import index_triangles, load_mesh, write_obj
+from utils.surface_io import index_triangles, load_mesh, write_obj
 from inference.native import atlas_ras_to_native_ras, main as native_main
 from postprocessing.geometry import load_pair
 

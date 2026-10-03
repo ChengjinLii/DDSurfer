@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterable, List, Sequence
 
 from preprocessing.inputs import INPUT_NAMES, resolve_inputs
-from inference.coordinates import atomic_json
+from utils.files import atomic_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -147,7 +147,7 @@ def build_prediction_command(
     return command
 
 
-def build_postprocessing_command(args: argparse.Namespace) -> List[str]:
+def build_native_conversion_command(args: argparse.Namespace) -> List[str]:
     return [
         sys.executable, str(PROJECT_ROOT / 'inference/native.py'),
         '--subject', args.subject, '--data-root', str(cache_directory(args) / 'volumes'),
@@ -252,7 +252,7 @@ def main(argv: Iterable[str] | None = None) -> None:
         else:
             logging.info("Skipping preprocessing as requested.")
         run_command(build_prediction_command(PROJECT_ROOT / 'DDSurfer_predict.py', args, 'both'))
-        run_command(build_postprocessing_command(args))
+        run_command(build_native_conversion_command(args))
         if args.freesurfer:
             run_command(build_freesurfer_command(args))
         finalize_outputs(args)

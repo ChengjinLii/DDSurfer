@@ -12,7 +12,7 @@ import numpy as np
 import SimpleITK as sitk
 
 from preprocessing.inputs import ensure_record, fingerprint, resolve_inputs, validate_inputs
-from preprocessing.conversion.bval_bvec_io import bvec_scaling
+from preprocessing.conversion.bval_bvec_io import encode_nrrd_gradient
 import run_ddsurfer_pipeline as pipeline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,7 +100,7 @@ class RawPipelineTests(unittest.TestCase):
                 validate_inputs(files)
 
     def test_zero_bvalue_cannot_become_a_diffusion_weighted_gradient(self):
-        encoded = bvec_scaling(0., [1., 0., 0.], 1000.)
+        encoded = encode_nrrd_gradient(0., [1., 0., 0.], 1000.)
         np.testing.assert_array_equal(np.fromstring(encoded, sep=' '), [0., 0., 0.])
 
     def test_nifti_scaling_is_applied_before_tensor_input_conversion(self):

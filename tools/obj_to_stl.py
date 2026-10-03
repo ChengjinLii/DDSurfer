@@ -17,15 +17,15 @@ def convert_obj_to_stl(input_obj_path, output_stl_path):
 # Setting up argument parsing
 def main():
     parser = argparse.ArgumentParser(description="Convert OBJ file to STL format")
-    
+
     # Define command-line arguments with default paths
-    parser.add_argument("--input_obj", default="/path/to/your/file.obj", 
+    parser.add_argument("--input_obj", default="./input.obj",
                         help="Path to the input .obj file")
-    parser.add_argument("--output_stl", default="/path/to/your/file.stl", 
+    parser.add_argument("--output_stl", default="./output.stl",
                         help="Path to the output .stl file")
-    
+
     args = parser.parse_args()
-    
+
     # Call the conversion function
     convert_obj_to_stl(args.input_obj, args.output_stl)
 

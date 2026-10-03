@@ -16,17 +16,17 @@ def convert_stl_to_obj(input_stl_path, output_obj_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Convert STL file to OBJ format")
-    
+
     # 定义命令行参数（默认路径需修改为实际路径）
-    parser.add_argument("--input_stl", 
-                        default="/path/to/your/input.stl", 
+    parser.add_argument("--input_stl",
+                        default="./input.stl",
                         help="Path to the input .stl file")
-    parser.add_argument("--output_obj", 
-                        default="/path/to/your/output.obj", 
+    parser.add_argument("--output_obj",
+                        default="./output.obj",
                         help="Path to the output .obj file")
-    
+
     args = parser.parse_args()
-    
+
     # 执行转换
     convert_stl_to_obj(args.input_stl, args.output_obj)
 

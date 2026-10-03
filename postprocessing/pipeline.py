@@ -19,7 +19,7 @@ if __package__ in (None, ''):
 import nibabel as nib
 import numpy as np
 
-from inference.coordinates import atomic_json, sha256_file
+from utils.files import atomic_json, sha256_file
 from postprocessing.geometry import load_pair, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
 
 ROOT = Path(__file__).resolve().parents[1]

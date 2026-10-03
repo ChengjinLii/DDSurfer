@@ -9,7 +9,7 @@ import numpy as np
 import SimpleITK as sitk
 import trimesh
 
-from inference.meshes import index_triangles, load_mesh
+from utils.surface_io import index_triangles, load_mesh
 
 LIA_DIRECTIONS = np.array([[-1., 0., 0.], [0., 0., 1.], [0., -1., 0.]])
 

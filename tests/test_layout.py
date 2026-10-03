@@ -55,6 +55,41 @@ class LayoutTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stdout)
                     self.assertIn('--subject', result.stdout)
 
+    def test_preprocessing_helpers_are_kept_with_their_stage(self):
+        for name in ('mask.py', 'resample.py', 'normalize.py', 'normalize_dti.py'):
+            self.assertTrue((ROOT / 'preprocessing' / name).is_file())
+        for name in ('skull_stripping.py', 'nifti_resample.py', 'nifti_zscore.py',
+                     'create_fs_label.py', 'io.py'):
+            self.assertFalse((ROOT / 'utils' / name).exists())
+        self.assertFalse((ROOT / 'inference/meshes.py').exists())
+        for name in ('files.py', 'surface_io.py', 'mesh.py'):
+            self.assertTrue((ROOT / 'utils' / name).is_file())
+
+    def test_postprocessing_does_not_import_inference_or_torch(self):
+        check = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                 'import postprocessing.pipeline; '
+                 'assert not any(name == "inference" or name.startswith("inference.") '
+                 'for name in sys.modules); assert "torch" not in sys.modules')
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run([sys.executable, '-I', '-B', '-c', check, str(ROOT)],
+                                    cwd=temp, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_relocated_python_helpers_work_outside_repository(self):
+        scripts = ('preprocessing/inputs.py', 'preprocessing/mask.py',
+                   'preprocessing/resample.py', 'preprocessing/normalize.py',
+                   'preprocessing/normalize_dti.py', 'tools/obj_to_stl.py',
+                   'tools/stl_to_obj.py', 'tools/translate_mesh.py')
+        with tempfile.TemporaryDirectory() as temp:
+            for script in scripts:
+                with self.subTest(script=script):
+                    result = subprocess.run([sys.executable, '-I', '-B', str(ROOT / script), '--help'],
+                                            cwd=temp, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    self.assertIn('usage:', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()

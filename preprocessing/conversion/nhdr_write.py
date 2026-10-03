@@ -17,10 +17,10 @@ import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-from bval_bvec_io import read_bvecs, read_bvals, bvec_scaling
+from bval_bvec_io import read_bvecs, read_bvals, encode_nrrd_gradient
 
 
-def matrix_string(A):
+def format_nrrd_matrix(A):
     # A= np.array(A)
 
     A= str(A.tolist())
@@ -28,13 +28,13 @@ def matrix_string(A):
     A= A.replace('],[',') (')
     return '('+A[2:-2]+')'
 
-def find_mf(F):
+def measurement_frame(F):
 
     R= F/np.linalg.norm(F,axis=0)
 
     return R
 
-def nhdr_write(nifti, bval, bvec, nhdr):
+def write_nhdr(nifti, bval, bvec, nhdr):
 
     print('Converting ', nifti)
 
@@ -119,14 +119,14 @@ type: {numpy_to_nrrd_dtype[dtype.name]}\ndimension: {dim}\nspace: right-anterior
         print('# {}'.format(np.char.decode(img.header['descrip'])))
 
     if dim == 4:
-        print(f'space directions: {matrix_string(spc_dir.T)} none')
+        print(f'space directions: {format_nrrd_matrix(spc_dir.T)} none')
         print('centerings: cell cell cell ???')
         print('kinds: space space space list')
 
         if bval and bvec:
 
-            mf = find_mf(spc_dir)
-            print(f'measurement frame: {matrix_string(mf.T)}')
+            mf = measurement_frame(spc_dir)
+            print(f'measurement frame: {format_nrrd_matrix(mf.T)}')
 
             bvecs = read_bvecs(bvec, assume_normed= False)
             bvals = read_bvals(bval)
@@ -136,14 +136,14 @@ type: {numpy_to_nrrd_dtype[dtype.name]}\ndimension: {dim}\nspace: right-anterior
             b_max = max(bvals)
             print(f'DWMRI_b-value:={b_max}')
             for ind in range(len(bvals)):
-                scaled_bvec = bvec_scaling(bvals[ind], bvecs[ind], b_max)
+                scaled_bvec = encode_nrrd_gradient(bvals[ind], bvecs[ind], b_max)
                 print(f'DWMRI_gradient_{ind:04}:={scaled_bvec}')
 
         else:
             warnings.warn('nifti image is 4D, but bval/bvec files are not provided, assuming not a DWMRI')
 
     else:
-        print(f'space directions: {matrix_string(spc_dir.T)}')
+        print(f'space directions: {format_nrrd_matrix(spc_dir.T)}')
         print('centerings: cell cell cell')
         print('kinds: space space space')
 
@@ -160,7 +160,7 @@ def main():
     parser.add_argument('--nhdr', type=str, help='output nhdr file, nifti and nhdr should be in the same directory')
 
     args = parser.parse_args()
-    nhdr_write(args.nifti, args.bval, args.bvec, args.nhdr)
+    write_nhdr(args.nifti, args.bval, args.bvec, args.nhdr)
 
 if __name__ == '__main__':
     main()

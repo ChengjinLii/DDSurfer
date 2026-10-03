@@ -15,8 +15,9 @@ import SimpleITK as sitk
 import torch
 import trimesh
 
-from inference.coordinates import Geometry, sha256_file
-from inference.meshes import load_mesh
+from inference.coordinates import Geometry
+from utils.files import sha256_file
+from utils.surface_io import load_mesh
 from inference.native import atlas_ras_to_native_ras
 from inference.predict import SurfacePredictor, load_checksums, load_model, main, resolve_precision
 import run_ddsurfer_pipeline as pipeline
@@ -49,7 +50,7 @@ class InferenceTests(unittest.TestCase):
 
     def test_native_conversion_command(self):
         args=pipeline.parse_args(['--subject','x'])
-        command=pipeline.build_postprocessing_command(args)
+        command=pipeline.build_native_conversion_command(args)
         self.assertIn(str(ROOT/'inference/native.py'),command)
         self.assertEqual(Path(command[command.index('--output-dir')+1]),ROOT/'outputs/x/ddsurfer')
 

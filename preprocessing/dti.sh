@@ -307,10 +307,10 @@ fi
 
 if [[ ! -f "$NII_FA_REG_NORM" || ! -f "$NII_TRACE_REG_NORM" || ! -f "$NII_MINEIG_REG_NORM" || ! -f "$NII_MIDEIG_REG_NORM" ]]; then
   log "Normalizing selected registered scalar maps inside the mask"
-  run_python_helper "$SCRIPT_DIR/normalize.py" --input "$NII_FA_REG" --mask "$NII_MASK_REG" --output "$NII_FA_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize.py" --input "$NII_TRACE_REG" --mask "$NII_MASK_REG" --output "$NII_TRACE_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize.py" --input "$NII_MINEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MINEIG_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize.py" --input "$NII_MIDEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MIDEIG_REG_NORM" --flip "$MASK_FLIP"
+  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_FA_REG" --mask "$NII_MASK_REG" --output "$NII_FA_REG_NORM" --flip "$MASK_FLIP"
+  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_TRACE_REG" --mask "$NII_MASK_REG" --output "$NII_TRACE_REG_NORM" --flip "$MASK_FLIP"
+  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_MINEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MINEIG_REG_NORM" --flip "$MASK_FLIP"
+  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_MIDEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MIDEIG_REG_NORM" --flip "$MASK_FLIP"
 fi
 
 for expected_output in \

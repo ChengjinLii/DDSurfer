@@ -10,15 +10,15 @@ from torch.utils.checkpoint import checkpoint
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.cmunext import (AttentionGate3D, CMUNeXtBlock3D, CMUNeXtBlock3D_SE,
-                                     conv_block_3d, fusion_conv_3d, up_conv_3d)
-from model.attention import LKA_Attention3d
+from model.cmunext import (AttentionGate3D, CMUNeXtBlock3D, CMUNeXtSEBlock3D,
+                           ConvBlock3D, FusionBlock3D, UpsampleBlock3D)
+from model.attention import LKAAttention3D
 from model.refinement import (GeometryAwareLKA3D,
-                                      ResidualGate, ResidualSkipGate3D,
-                                      cross_gate_options, replace_batchnorm, resolve_refinement)
+                              ResidualGate, ResidualSkipGate3D,
+                              cross_gate_options, replace_batchnorm, resolve_refinement)
 
 # ------------------------- Building Blocks -------------------------
-class CrossAttentionFusionModule(nn.Module):
+class CrossStreamFusion(nn.Module):
     """Voxelwise cross-stream gating, optionally with bounded residual modulation."""
 
     def __init__(self, channels_a: int, channels_b: int, reduction: int = 4,
@@ -70,7 +70,7 @@ class CrossAttentionFusionModule(nn.Module):
 
 
 # ------------------------- Velocity Field Backbone -------------------------
-class CMUNeXt_VFNet_Final(nn.Module):
+class VelocityFieldNet(nn.Module):
     """Dual-stream CMUNeXt encoder-decoder that predicts cascaded velocity fields."""
 
     def __init__(
@@ -101,11 +101,11 @@ class CMUNeXt_VFNet_Final(nn.Module):
         self.encoder_fusion_enabled = refinement is not None and refinement["encoder_fusion"]
         if len(inshape) != 3 or any(s < 16 or s % 16 or int(s) != s for s in inshape):
             raise ValueError("Each spatial dimension must be a positive multiple of 16")
-        encoder_block = CMUNeXtBlock3D_SE if refinement is None or refinement["use_se"] else CMUNeXtBlock3D
+        encoder_block = CMUNeXtSEBlock3D if refinement is None or refinement["use_se"] else CMUNeXtBlock3D
         gate_policy = refinement["cross_gate_policy"] if refinement is not None else "standard"
 
         def fusion(channels_a, channels_b, stage):
-            return CrossAttentionFusionModule(
+            return CrossStreamFusion(
                 channels_a, channels_b, residual=refinement is not None and refinement["residual_gates"],
                 **cross_gate_options(gate_policy, stage))
 
@@ -116,14 +116,14 @@ class CMUNeXt_VFNet_Final(nn.Module):
         self.dims_B = [d - a for d, a in zip(dims, self.dims_A)]
 
         # Encoder streams
-        self.stem_A = conv_block_3d(1, self.dims_A[0])
+        self.stem_A = ConvBlock3D(1, self.dims_A[0])
         self.encoder1_A = encoder_block(self.dims_A[0], self.dims_A[0], depth=depths[0], kernel_size=kernels[0])
         self.encoder2_A = encoder_block(self.dims_A[0], self.dims_A[1], depth=depths[1], kernel_size=kernels[1])
         self.encoder3_A = encoder_block(self.dims_A[1], self.dims_A[2], depth=depths[2], kernel_size=kernels[2])
         self.encoder4_A = encoder_block(self.dims_A[2], self.dims_A[3], depth=depths[3], kernel_size=kernels[3])
         self.encoder5_A = encoder_block(self.dims_A[3], self.dims_A[4], depth=depths[4], kernel_size=kernels[4])
 
-        self.stem_B = conv_block_3d(input_channel - 1, self.dims_B[0])
+        self.stem_B = ConvBlock3D(input_channel - 1, self.dims_B[0])
         self.encoder1_B = encoder_block(self.dims_B[0], self.dims_B[0], depth=depths[0], kernel_size=kernels[0])
         self.encoder2_B = encoder_block(self.dims_B[0], self.dims_B[1], depth=depths[1], kernel_size=kernels[1])
         self.encoder3_B = encoder_block(self.dims_B[1], self.dims_B[2], depth=depths[2], kernel_size=kernels[2])
@@ -140,39 +140,39 @@ class CMUNeXt_VFNet_Final(nn.Module):
         self.Maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
         self.lka_attention = (GeometryAwareLKA3D(dims[4], [s // 16 for s in inshape], refinement["norm_type"])
                               if refinement is not None and refinement["geometry_aware_lka"]
-                              else LKA_Attention3d(d_model=dims[4]))
+                              else LKAAttention3D(d_model=dims[4]))
 
         # Decoder with attention gates
-        self.Up5_A = up_conv_3d(self.dims_A[4], self.dims_A[3])
-        self.Up5_B = up_conv_3d(self.dims_B[4], self.dims_B[3])
+        self.Up5_A = UpsampleBlock3D(self.dims_A[4], self.dims_A[3])
+        self.Up5_B = UpsampleBlock3D(self.dims_B[4], self.dims_B[3])
         self.Att5_A = skip_gate(self.dims_A[3], self.dims_A[3], self.dims_A[2])
         self.Att5_B = skip_gate(self.dims_B[3], self.dims_B[3], self.dims_B[2])
-        self.Up_conv5_A = fusion_conv_3d(self.dims_A[3] * 2, self.dims_A[3])
-        self.Up_conv5_B = fusion_conv_3d(self.dims_B[3] * 2, self.dims_B[3])
+        self.Up_conv5_A = FusionBlock3D(self.dims_A[3] * 2, self.dims_A[3])
+        self.Up_conv5_B = FusionBlock3D(self.dims_B[3] * 2, self.dims_B[3])
         self.decoder_fusion4 = fusion(self.dims_A[3], self.dims_B[3], 4)
 
-        self.Up4_A = up_conv_3d(self.dims_A[3], self.dims_A[2])
-        self.Up4_B = up_conv_3d(self.dims_B[3], self.dims_B[2])
+        self.Up4_A = UpsampleBlock3D(self.dims_A[3], self.dims_A[2])
+        self.Up4_B = UpsampleBlock3D(self.dims_B[3], self.dims_B[2])
         self.Att4_A = skip_gate(self.dims_A[2], self.dims_A[2], self.dims_A[1])
         self.Att4_B = skip_gate(self.dims_B[2], self.dims_B[2], self.dims_B[1])
-        self.Up_conv4_A = fusion_conv_3d(self.dims_A[2] * 2, self.dims_A[2])
-        self.Up_conv4_B = fusion_conv_3d(self.dims_B[2] * 2, self.dims_B[2])
+        self.Up_conv4_A = FusionBlock3D(self.dims_A[2] * 2, self.dims_A[2])
+        self.Up_conv4_B = FusionBlock3D(self.dims_B[2] * 2, self.dims_B[2])
         self.decoder_fusion3 = fusion(self.dims_A[2], self.dims_B[2], 3)
 
-        self.Up3_A = up_conv_3d(self.dims_A[2], self.dims_A[1])
-        self.Up3_B = up_conv_3d(self.dims_B[2], self.dims_B[1])
+        self.Up3_A = UpsampleBlock3D(self.dims_A[2], self.dims_A[1])
+        self.Up3_B = UpsampleBlock3D(self.dims_B[2], self.dims_B[1])
         self.Att3_A = skip_gate(self.dims_A[1], self.dims_A[1], self.dims_A[0])
         self.Att3_B = skip_gate(self.dims_B[1], self.dims_B[1], self.dims_B[0])
-        self.Up_conv3_A = fusion_conv_3d(self.dims_A[1] * 2, self.dims_A[1])
-        self.Up_conv3_B = fusion_conv_3d(self.dims_B[1] * 2, self.dims_B[1])
+        self.Up_conv3_A = FusionBlock3D(self.dims_A[1] * 2, self.dims_A[1])
+        self.Up_conv3_B = FusionBlock3D(self.dims_B[1] * 2, self.dims_B[1])
         self.decoder_fusion2 = fusion(self.dims_A[1], self.dims_B[1], 2)
 
-        self.Up2_A = up_conv_3d(self.dims_A[1], self.dims_A[0])
-        self.Up2_B = up_conv_3d(self.dims_B[1], self.dims_B[0])
+        self.Up2_A = UpsampleBlock3D(self.dims_A[1], self.dims_A[0])
+        self.Up2_B = UpsampleBlock3D(self.dims_B[1], self.dims_B[0])
         self.Att2_A = skip_gate(self.dims_A[0], self.dims_A[0], max(1, self.dims_A[0] // 2))
         self.Att2_B = skip_gate(self.dims_B[0], self.dims_B[0], max(1, self.dims_B[0] // 2))
-        self.Up_conv2_A = fusion_conv_3d(self.dims_A[0] * 2, self.dims_A[0])
-        self.Up_conv2_B = fusion_conv_3d(self.dims_B[0] * 2, self.dims_B[0])
+        self.Up_conv2_A = FusionBlock3D(self.dims_A[0] * 2, self.dims_A[0])
+        self.Up_conv2_B = FusionBlock3D(self.dims_B[0] * 2, self.dims_B[0])
 
         # Cascaded velocity heads
         self.flow1 = nn.Conv3d(dims[2], 3 * M, kernel_size=kernel_size, padding=kernel_size // 2)
@@ -282,7 +282,7 @@ class CMUNeXt_VFNet_Final(nn.Module):
         return fields
 
 # ------------------------- Temporal Attention -------------------------
-class AttentionNet(nn.Module):
+class TemporalAttentionNet(nn.Module):
     """Temporal attention predictor for weighting stationary velocity fields."""
 
     def __init__(self, hidden_channels: int = 16, M: int = 2, R: int = 3,
@@ -342,10 +342,10 @@ class TANet(nn.Module):
         self.refinement = resolve_refinement(refinement)
         self.conditioned_attention = self.refinement is not None and self.refinement["conditioned_attention"]
         self.rk4_stage_time = self.refinement is not None and self.refinement["rk4_stage_time"]
-        self.vf_net = CMUNeXt_VFNet_Final(C_in, C_hid, depths, kernels, M=self.M, R=self.R,
-                                         inshape=inshape, refinement=self.refinement)
-        self.att_net = AttentionNet(hidden_channels=16, M=self.M, R=self.R,
-                                     context_channels=C_hid[-1] if self.conditioned_attention else None)
+        self.vf_net = VelocityFieldNet(C_in, C_hid, depths, kernels, M=self.M, R=self.R,
+                                       inshape=inshape, refinement=self.refinement)
+        self.att_net = TemporalAttentionNet(hidden_channels=16, M=self.M, R=self.R,
+                                           context_channels=C_hid[-1] if self.conditioned_attention else None)
 
         self.h = float(step_size)
         self.num_steps = max(1, int(round(1.0 / self.h)))

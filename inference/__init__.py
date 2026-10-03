@@ -1,1 +1,1 @@
-"""Versioned DDSurfer inference entry points."""
+"""DDSurfer surface prediction and coordinate conversion."""

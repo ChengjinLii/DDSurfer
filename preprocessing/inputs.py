@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import sys
 from pathlib import Path
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import nibabel as nib
 import numpy as np
+
+from utils.files import sha256_file
 
 
 INPUT_NAMES = ('dwi', 'bval', 'bvec', 'mask')
@@ -105,11 +110,7 @@ def validate_inputs(files):
 
 def fingerprint(path):
     path = Path(path).resolve()
-    digest = hashlib.sha256()
-    with path.open('rb') as source:
-        for block in iter(lambda: source.read(1024 * 1024), b''):
-            digest.update(block)
-    return dict(path=str(path), sha256=digest.hexdigest())
+    return dict(path=str(path), sha256=sha256_file(path))
 
 
 def ensure_record(path, signature):

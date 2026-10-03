@@ -14,20 +14,20 @@ from typing import Sequence
 import torch
 import torch.nn as nn
 
-from model.attention import LKA_Attention3d
-from model.volume import T_DAModule
+from model.attention import LKAAttention3D
+from model.volume import VolumeAttention3D
 
 __all__ = [
     "ChannelSELayer",
     "AttentionGate3D",
-    "conv_block_3d",
-    "Residual3d",
+    "ConvBlock3D",
+    "ResidualBlock3D",
     "CMUNeXtBlock3D",
-    "CMUNeXtBlock3D_SE",
-    "up_conv_3d",
-    "fusion_conv_3d",
-    "fusion_conv_3d_SE",
-    "CMUNeXt3D_LKA_SE_TDA",
+    "CMUNeXtSEBlock3D",
+    "UpsampleBlock3D",
+    "FusionBlock3D",
+    "SEFusionBlock3D",
+    "CMUNeXt3D",
 ]
 
 
@@ -80,7 +80,7 @@ class AttentionGate3D(nn.Module):
         return encoder_features * weights
 
 
-class conv_block_3d(nn.Module):
+class ConvBlock3D(nn.Module):
     """Single 3x3 convolution + BN + ReLU used at the network stem."""
 
     def __init__(self, ch_in: int, ch_out: int) -> None:
@@ -95,7 +95,7 @@ class conv_block_3d(nn.Module):
         return self.conv(x)
 
 
-class Residual3d(nn.Module):
+class ResidualBlock3D(nn.Module):
     """Wrap a module to add a residual connection."""
 
     def __init__(self, fn: nn.Module) -> None:
@@ -115,7 +115,7 @@ class CMUNeXtBlock3D(nn.Module):
         for _ in range(depth):
             layers.append(
                 nn.Sequential(
-                    Residual3d(
+                    ResidualBlock3D(
                         nn.Sequential(
                             nn.Conv3d(
                                 ch_in,
@@ -137,13 +137,13 @@ class CMUNeXtBlock3D(nn.Module):
                 )
             )
         self.block = nn.Sequential(*layers)
-        self.up = conv_block_3d(ch_in, ch_out)
+        self.up = ConvBlock3D(ch_in, ch_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.up(self.block(x))
 
 
-class CMUNeXtBlock3D_SE(nn.Module):
+class CMUNeXtSEBlock3D(nn.Module):
     """CMUNeXt block with an SE layer appended to the residual stack."""
 
     def __init__(self, ch_in: int, ch_out: int, depth: int = 1, kernel_size: int = 3, r: int = 4) -> None:
@@ -152,7 +152,7 @@ class CMUNeXtBlock3D_SE(nn.Module):
         for _ in range(depth):
             layers.append(
                 nn.Sequential(
-                    Residual3d(
+                    ResidualBlock3D(
                         nn.Sequential(
                             nn.Conv3d(
                                 ch_in,
@@ -175,13 +175,13 @@ class CMUNeXtBlock3D_SE(nn.Module):
                 )
             )
         self.block = nn.Sequential(*layers)
-        self.up = conv_block_3d(ch_in, ch_out)
+        self.up = ConvBlock3D(ch_in, ch_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.up(self.block(x))
 
 
-class up_conv_3d(nn.Module):
+class UpsampleBlock3D(nn.Module):
     """Trilinear upsampling followed by a 3x3 convolution."""
 
     def __init__(self, ch_in: int, ch_out: int) -> None:
@@ -197,7 +197,7 @@ class up_conv_3d(nn.Module):
         return self.up(x)
 
 
-class fusion_conv_3d(nn.Module):
+class FusionBlock3D(nn.Module):
     """Pointwise fusion block used during upsampling."""
 
     def __init__(self, ch_in: int, ch_out: int) -> None:
@@ -218,12 +218,12 @@ class fusion_conv_3d(nn.Module):
         return self.conv(x)
 
 
-class fusion_conv_3d_SE(nn.Module):
+class SEFusionBlock3D(nn.Module):
     """Fusion block with an SE refinement stage."""
 
     def __init__(self, ch_in: int, ch_out: int, r: int = 4) -> None:
         super().__init__()
-        self.original_conv_block = fusion_conv_3d(ch_in, ch_out)
+        self.original_conv_block = FusionBlock3D(ch_in, ch_out)
         self.se_layer = ChannelSELayer(spatial_dims=3, in_channels=ch_out, r=r)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -232,15 +232,15 @@ class fusion_conv_3d_SE(nn.Module):
 
 
 @dataclass(frozen=True)
-class DecoderTDAConfig:
-    """Configuration container for the T_DAModule blocks."""
+class DecoderAttentionConfig:
+    """Configuration container for the VolumeAttention3D blocks."""
 
     reduction_ratio: int = 8
     pool_types: Sequence[str] = ("avg", "max")
     no_spatial_depth: bool = False
 
 
-class CMUNeXt3D_LKA_SE_TDA(nn.Module):
+class CMUNeXt3D(nn.Module):
     """CMUNeXt encoder-decoder augmented with LKA and TDA modules."""
 
     def __init__(
@@ -251,56 +251,56 @@ class CMUNeXt3D_LKA_SE_TDA(nn.Module):
         depths: Sequence[int] = (1, 1, 1, 2, 1),
         kernels: Sequence[int] = (3, 3, 5, 5, 5),
         se_reduction: int = 4,
-        tda_cfg: DecoderTDAConfig | None = None,
+        tda_cfg: DecoderAttentionConfig | None = None,
     ) -> None:
         super().__init__()
         if len(dims) != 5 or len(depths) != 5 or len(kernels) != 5:
             msg = "dims, depths, and kernels must all have length 5."
             raise ValueError(msg)
 
-        tda_cfg = tda_cfg or DecoderTDAConfig()
+        tda_cfg = tda_cfg or DecoderAttentionConfig()
 
         self.Maxpool = nn.MaxPool3d(kernel_size=2, stride=2)
-        self.stem = conv_block_3d(ch_in=input_channel, ch_out=dims[0])
+        self.stem = ConvBlock3D(ch_in=input_channel, ch_out=dims[0])
 
-        self.encoder1 = CMUNeXtBlock3D_SE(dims[0], dims[0], depth=depths[0], kernel_size=kernels[0], r=se_reduction)
-        self.encoder2 = CMUNeXtBlock3D_SE(dims[0], dims[1], depth=depths[1], kernel_size=kernels[1], r=se_reduction)
-        self.encoder3 = CMUNeXtBlock3D_SE(dims[1], dims[2], depth=depths[2], kernel_size=kernels[2], r=se_reduction)
-        self.encoder4 = CMUNeXtBlock3D_SE(dims[2], dims[3], depth=depths[3], kernel_size=kernels[3], r=se_reduction)
-        self.encoder5 = CMUNeXtBlock3D_SE(dims[3], dims[4], depth=depths[4], kernel_size=kernels[4], r=se_reduction)
+        self.encoder1 = CMUNeXtSEBlock3D(dims[0], dims[0], depth=depths[0], kernel_size=kernels[0], r=se_reduction)
+        self.encoder2 = CMUNeXtSEBlock3D(dims[0], dims[1], depth=depths[1], kernel_size=kernels[1], r=se_reduction)
+        self.encoder3 = CMUNeXtSEBlock3D(dims[1], dims[2], depth=depths[2], kernel_size=kernels[2], r=se_reduction)
+        self.encoder4 = CMUNeXtSEBlock3D(dims[2], dims[3], depth=depths[3], kernel_size=kernels[3], r=se_reduction)
+        self.encoder5 = CMUNeXtSEBlock3D(dims[3], dims[4], depth=depths[4], kernel_size=kernels[4], r=se_reduction)
 
-        self.lka_attention = LKA_Attention3d(d_model=dims[4])
+        self.lka_attention = LKAAttention3D(d_model=dims[4])
 
-        self.up5 = up_conv_3d(dims[4], dims[3])
-        self.up_conv5 = fusion_conv_3d_SE(dims[3] * 2, dims[3], r=se_reduction)
-        self.tda5 = T_DAModule(
+        self.up5 = UpsampleBlock3D(dims[4], dims[3])
+        self.up_conv5 = SEFusionBlock3D(dims[3] * 2, dims[3], r=se_reduction)
+        self.tda5 = VolumeAttention3D(
             gate_channels=dims[3],
             reduction_ratio=tda_cfg.reduction_ratio,
             pool_type=list(tda_cfg.pool_types),
             no_spatial_depth=tda_cfg.no_spatial_depth,
         )
 
-        self.up4 = up_conv_3d(dims[3], dims[2])
-        self.up_conv4 = fusion_conv_3d_SE(dims[2] * 2, dims[2], r=se_reduction)
-        self.tda4 = T_DAModule(
+        self.up4 = UpsampleBlock3D(dims[3], dims[2])
+        self.up_conv4 = SEFusionBlock3D(dims[2] * 2, dims[2], r=se_reduction)
+        self.tda4 = VolumeAttention3D(
             gate_channels=dims[2],
             reduction_ratio=tda_cfg.reduction_ratio,
             pool_type=list(tda_cfg.pool_types),
             no_spatial_depth=tda_cfg.no_spatial_depth,
         )
 
-        self.up3 = up_conv_3d(dims[2], dims[1])
-        self.up_conv3 = fusion_conv_3d_SE(dims[1] * 2, dims[1], r=se_reduction)
-        self.tda3 = T_DAModule(
+        self.up3 = UpsampleBlock3D(dims[2], dims[1])
+        self.up_conv3 = SEFusionBlock3D(dims[1] * 2, dims[1], r=se_reduction)
+        self.tda3 = VolumeAttention3D(
             gate_channels=dims[1],
             reduction_ratio=tda_cfg.reduction_ratio,
             pool_type=list(tda_cfg.pool_types),
             no_spatial_depth=tda_cfg.no_spatial_depth,
         )
 
-        self.up2 = up_conv_3d(dims[1], dims[0])
-        self.up_conv2 = fusion_conv_3d_SE(dims[0] * 2, dims[0], r=se_reduction)
-        self.tda2 = T_DAModule(
+        self.up2 = UpsampleBlock3D(dims[1], dims[0])
+        self.up_conv2 = SEFusionBlock3D(dims[0] * 2, dims[0], r=se_reduction)
+        self.tda2 = VolumeAttention3D(
             gate_channels=dims[0],
             reduction_ratio=tda_cfg.reduction_ratio,
             pool_type=list(tda_cfg.pool_types),

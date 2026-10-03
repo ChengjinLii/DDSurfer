@@ -59,7 +59,7 @@ def transpose(bvecs):
     return bvecs_T
 
 
-def bvec_transpose(old_bvec_file, new_bvec_file):
+def transpose_bvec_file(old_bvec_file, new_bvec_file):
     # read bvecs
     bvecs = read_bvecs(old_bvec_file)
 
@@ -70,33 +70,25 @@ def bvec_transpose(old_bvec_file, new_bvec_file):
     write_bvecs(new_bvec_file, bvecs_T)
 
 
-def tranpose(bvecs):
-
-    # bvecs_T = matrix(list(map(list, zip(*bvecs))))
-    bvecs_T = list(map(list, zip(*bvecs)))
-
-    return bvecs_T
-
-
-def bvec_rotate(old_bvec_file, new_bvec_file, rot_matrix):
+def rotate_bvec_file(old_bvec_file, new_bvec_file, rot_matrix):
 
     # read bvecs
     bvecs= read_bvecs(old_bvec_file)
 
     # making 3xN
-    bvecs_T= tranpose(bvecs)
+    bvecs_T= transpose(bvecs)
 
     # rotate bvecs
     bvecs_T= np.matrix.round(rot_matrix @ np.matrix(bvecs_T), PRECISION)
 
     # making Nx3 again
-    bvecs = tranpose(bvecs_T)
+    bvecs = transpose(bvecs_T)
 
     # write bvecs back
     write_bvecs(new_bvec_file, bvecs)
 
 
-def bvec_scaling(bval, bvec, b_max):
+def encode_nrrd_gradient(bval, bvec, b_max):
     if b_max <= 0 or bval < 0:
         raise ValueError('Expected nonnegative b-values and a positive maximum')
     # A zero b-value must encode a zero NRRD gradient, even if its input
@@ -108,7 +100,7 @@ def bvec_scaling(bval, bvec, b_max):
 
     return ('   ').join(bvec)
 
-def read_grad_ind(filename):
+def read_gradient_indices(filename):
 
     with open(filename) as f:
         content= f.read()
@@ -122,7 +114,7 @@ def read_grad_ind(filename):
         raise IndexError('qc index list is empty')
 
 
-def nrrd_bvals_bvecs(hdr):
+def parse_nrrd_gradients(hdr):
     if hdr['dimension'] == 4:
         axis_elements = hdr['kinds']
     else:

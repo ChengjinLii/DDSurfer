@@ -12,8 +12,8 @@ if __package__ in (None, ''):
 import numpy as np
 import SimpleITK as sitk
 
-from inference.coordinates import atomic_json, sha256_file
-from inference.meshes import load_mesh, write_obj
+from utils.files import atomic_json, sha256_file
+from utils.surface_io import load_mesh, write_obj
 
 
 def atlas_ras_to_native_ras(vertices, transform):

@@ -12,8 +12,9 @@ import nibabel as nib
 import numpy as np
 import torch
 
-from inference.coordinates import Geometry, MODALITIES, atomic_json, export_crop_mesh, sha256_file
-from inference.meshes import load_mesh
+from inference.coordinates import Geometry, MODALITIES, export_crop_mesh
+from utils.files import atomic_json, sha256_file
+from utils.surface_io import load_mesh
 from model.ddsurfer import TANet
 from utils.mesh import taubin_smooth
 

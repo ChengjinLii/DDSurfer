@@ -13,7 +13,7 @@ PRECISION= 17
 np.set_printoptions(precision= PRECISION, suppress= True, floatmode= 'maxprec')
 
 
-def _space2ras(space):
+def _space_to_ras(space):
     '''Find the diagonal transform required to transform space to RAS'''
 
     if len(space)==3:
@@ -45,7 +45,7 @@ def _space2ras(space):
     return np.diag(xfrm)
 
 
-def nifti_write(inImg, prefix= None):
+def write_nifti(inImg, prefix= None):
 
     if prefix:
         prefix= os.path.abspath(prefix)
@@ -73,7 +73,7 @@ def nifti_write(inImg, prefix= None):
     SPACE_UNITS = 2
     TIME_UNITS = 0
 
-    SPACE2RAS = _space2ras(hdr['space'])
+    SPACE2RAS = _space_to_ras(hdr['space'])
 
     translation= hdr['space origin']
 
@@ -163,7 +163,7 @@ def main():
 
     args = parser.parse_args()
 
-    nifti_write(args.input, args.prefix)
+    write_nifti(args.input, args.prefix)
 
 if __name__ == '__main__':
     main()

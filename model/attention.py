@@ -249,7 +249,7 @@ class ConvOffset3D(nn.Conv3d):
         return x
 
 
-def deform_conv3d(in_c, out_c, kernel_size, **kwargs):
+def make_deformable_conv3d(in_c, out_c, kernel_size, **kwargs):
     """Deformable convolution layer: convolution + offset"""
     return nn.Sequential(
         ConvOffset3D(out_c),
@@ -257,10 +257,11 @@ def deform_conv3d(in_c, out_c, kernel_size, **kwargs):
 
     )
 
-class DeformConv3d(nn.Module):  # TODO: 3d version of this
+class DeformableConv2D(nn.Module):
+    """2D deformable convolution with learned spatial offsets."""
 
     def __init__(self, in_channels, groups, kernel_size=(3, 3), padding=1, stride=1, dilation=1, bias=True):
-        super(DeformConv3d, self).__init__()
+        super(DeformableConv2D, self).__init__()
 
         self.offset_net = nn.Conv2d(in_channels=in_channels,
                                     out_channels=2 * kernel_size[0] * kernel_size[1],
@@ -269,7 +270,7 @@ class DeformConv3d(nn.Module):  # TODO: 3d version of this
                                     stride=1,
                                     bias=True)
 
-        self.deform_conv = torchvision.ops.DeformConv2d(in_channels=in_channels,  # 3d version of this?
+        self.deform_conv = torchvision.ops.DeformConv2d(in_channels=in_channels,
                                                         out_channels=in_channels,
                                                         kernel_size=kernel_size,
                                                         padding=padding,
@@ -284,7 +285,7 @@ class DeformConv3d(nn.Module):  # TODO: 3d version of this
         return out
 
 
-class LKA3d(nn.Module):
+class LargeKernelAttention3D(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.conv0 = nn.Conv3d(dim, dim, 5, padding=2, groups=dim)
@@ -300,13 +301,13 @@ class LKA3d(nn.Module):
         return u * attn
 
 
-class LKA_Attention3d(nn.Module):
+class LKAAttention3D(nn.Module):
     def __init__(self, d_model):
         super().__init__()
 
         self.proj_1 = nn.Conv3d(d_model, d_model, 1)
         self.activation = nn.GELU()
-        self.spatial_gating_unit = LKA3d(d_model)
+        self.spatial_gating_unit = LargeKernelAttention3D(d_model)
         self.proj_2 = nn.Conv3d(d_model, d_model, 1)
 
     def forward(self, x):
@@ -320,7 +321,7 @@ class LKA_Attention3d(nn.Module):
 
 
 if __name__ == '__main__':
-    block = LKA_Attention3d(d_model=32).cuda(0)
+    block = LKAAttention3D(d_model=32).cuda(0)
     input = torch.rand(1, 32, 56, 56, 56).cuda(0)
     output = block(input)
     print(input.size())

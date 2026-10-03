@@ -12,8 +12,8 @@ import SimpleITK as sitk
 LOGGER = logging.getLogger(__name__)
 
 
-def _normalise_direction(direction: Sequence[float]) -> tuple[float, ...]:
-    """Validate and normalise a 3D direction cosine matrix."""
+def _parse_direction(direction: Sequence[float]) -> tuple[float, ...]:
+    """Parse nine direction-cosine values as a 3D matrix."""
     if len(direction) != 9:
         msg = "target direction must contain exactly 9 values for a 3D image."
         raise ValueError(msg)
@@ -28,7 +28,7 @@ def _load_target_geometry_from_image(target_image_path: Path) -> tuple[tuple[flo
         tuple(float(value) for value in target_image.GetSpacing()),
         tuple(int(value) for value in target_image.GetSize()),
         tuple(float(value) for value in target_image.GetOrigin()),
-        _normalise_direction(target_image.GetDirection()),
+        _parse_direction(target_image.GetDirection()),
     )
 
 
@@ -48,7 +48,7 @@ def _resolve_target_geometry(args: argparse.Namespace) -> tuple[tuple[float, ...
         tuple(float(value) for value in args.target_spacing),
         tuple(int(value) for value in args.target_size),
         tuple(float(value) for value in args.target_origin),
-        _normalise_direction(args.target_direction),
+        _parse_direction(args.target_direction),
     )
 
 

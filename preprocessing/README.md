@@ -4,6 +4,11 @@ This directory contains the complete volume-preprocessing workflow.
 `run.sh` calls `dti.sh` to estimate DTI and register scalar maps, then masks,
 resamples and z-score normalizes them for surface inference.
 
+The image helpers `mask.py`, `resample.py`, and `normalize.py` are kept in this
+directory. `normalize_dti.py` handles DTI-cache normalization separately;
+`normalize.py` performs the final per-volume z-score normalization used by
+surface inference. Their mask and background handling are kept distinct.
+
 Install Python dependencies using the repository-root
 [`environment.yml`](../environment.yml) or [`requirements.txt`](../requirements.txt).
 Slicer with SlicerDMRI is required separately; see the root
