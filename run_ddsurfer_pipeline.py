@@ -1,19 +1,20 @@
-"""End-to-end DDSurfer pipeline runner.
-
-Given a subject identifier, this script orchestrates preprocessing, surface
-prediction for both hemispheres, and post-processing back to native space.
-Each stage delegates to existing project utilities to preserve the original
-logic while providing a modern, automation-friendly interface.
-"""
+"""Run diffusion preprocessing, MNI surface prediction and native-space processing."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
 import shlex
 import subprocess
+import shutil
+import sys
 from pathlib import Path
 from typing import Iterable, List, Sequence
+
+from preprocessing.inputs import INPUT_NAMES, resolve_inputs
+from inference.coordinates import atomic_json
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -38,44 +39,45 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Torch device to use for prediction (e.g. cuda:0 or cpu).",
     )
     parser.add_argument(
-        "--input-root",
-        type=Path,
-        default=PROJECT_ROOT / "DTI-inputs",
-        help="Directory containing subject-specific registered DTI inputs.",
-    )
-    parser.add_argument(
         "--raw-input-root",
         type=Path,
-        default=PROJECT_ROOT / "raw-dwi-inputs",
-        help="Directory containing raw diffusion inputs under <ID>/T1w/Diffusion.",
+        default=PROJECT_ROOT / "inputs",
+        help="Raw DWI input directory (DDParcel file layout or HCP subject tree).",
     )
+    for name in INPUT_NAMES:
+        parser.add_argument(f'--{name}', type=Path,
+                            help=f'Raw {name} file; supply --dwi, --bval, --bvec and --mask together.')
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=PROJECT_ROOT / "data_Reg" / "test",
-        help="Destination for resampled, preprocessed volumes.",
-    )
-    parser.add_argument(
-        "--predictions-dir",
-        type=Path,
-        default=PROJECT_ROOT / "pred_results_DDSurfer",
-        help="Directory where predicted meshes will be stored.",
+        default=PROJECT_ROOT / "outputs",
+        help="Final native surfaces and optional postprocess outputs under <subject>/.",
     )
     parser.add_argument(
         "--predict-mode",
         choices=("wm", "all"),
         default="all",
-        help="Prediction mode passed to the hemisphere scripts.",
+        help="Predict white surfaces only (wm), or white and pial surfaces (all).",
     )
+    parser.add_argument('--precision', choices=('auto', 'bf16', 'fp32'), default='auto',
+                        help='Inference precision: auto, bf16, or fp32.')
+    parser.add_argument('--checkpoint-root', type=Path, default=PROJECT_ROOT / 'ckpts')
+    parser.add_argument('--template-dir', type=Path, default=PROJECT_ROOT / 'template')
+    parser.add_argument('--save-debug', action='store_true', help='Save crop-coordinate predictions in cache; use --keep-cache to retain.')
+    parser.add_argument('--post-process', '--freesurfer', dest='freesurfer', action='store_true',
+                        help='Enable FreeSurfer surface postprocessing (disabled by default).')
+    parser.add_argument('--keep-cache', action='store_true',
+                        help='Keep DTI, preprocessed volumes and MNI meshes; otherwise remove after success.')
+    parser.add_argument('--freesurfer-home', type=Path, default=os.environ.get('FREESURFER_HOME'))
+    parser.add_argument('--postprocess-hemi', choices=('left', 'right', 'both'), default='both')
+    parser.add_argument('--postprocess-atlases', default='aparc,aparc.a2009s')
+    parser.add_argument('--brain-source', type=Path, help='Native-space MRI; defaults to the native b0 from DTI estimation.')
+    parser.add_argument('--postprocess-threads', type=int, default=4)
+    parser.add_argument('--postprocess-serial', action='store_true', help='Process hemispheres sequentially.')
     parser.add_argument(
         "--skip-preprocessing",
         action="store_true",
-        help="Assume preprocessing outputs already exist and skip Data-Preprocessing.sh.",
-    )
-    parser.add_argument(
-        "--skip-postprocessing",
-        action="store_true",
-        help="Skip utils/space_MNI2orig.sh (useful when only meshes are required).",
+        help="Reuse preprocessing in this subject's retained cache (--keep-cache).",
     )
     parser.add_argument(
         "--log-level",
@@ -86,19 +88,33 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
+def subject_directory(args):
+    return args.output_root.resolve() / args.subject
+
+
+def cache_directory(args):
+    return subject_directory(args) / '.cache'
+
+
 def build_preprocessing_command(args: argparse.Namespace) -> List[str]:
-    return [
+    files = resolve_inputs(args.subject, args.raw_input_root,
+                           **{name: getattr(args, name) for name in INPUT_NAMES})
+    command = [
         "bash",
-        str(PROJECT_ROOT / "Data-Preprocessing.sh"),
+        str(PROJECT_ROOT / "preprocessing/run.sh"),
         "--subject",
         args.subject,
         "--raw-input-root",
         str(args.raw_input_root),
         "--input-root",
-        str(args.input_root),
+        str(cache_directory(args) / 'dti'),
         "--output-root",
-        str(args.output_root),
+        str(cache_directory(args) / 'volumes'),
+        '--log-dir', str(subject_directory(args) / 'logs/preprocessing'),
     ]
+    for name in INPUT_NAMES:
+        command += [f'--{name}', str(files[name])]
+    return command
 
 
 def build_prediction_command(
@@ -106,8 +122,8 @@ def build_prediction_command(
     args: argparse.Namespace,
     hemisphere: str,
 ) -> List[str]:
-    return [
-        "python3",
+    command = [
+        sys.executable,
         str(script_path),
         "--data_type",
         args.data_type,
@@ -116,51 +132,139 @@ def build_prediction_command(
         "--device",
         args.device,
         "--input_root",
-        str(args.output_root),
+        str(cache_directory(args) / 'volumes'),
         "--output_dir",
-        str(args.predictions_dir),
+        str(cache_directory(args) / 'predictions'),
         "--predict_mode",
         args.predict_mode,
         "--subjects",
         args.subject,
     ]
+    command += ['--checkpoint_root', str(args.checkpoint_root),
+                '--template_dir', str(args.template_dir), '--precision', args.precision]
+    if args.save_debug:
+        command += ['--save-debug']
+    return command
 
 
 def build_postprocessing_command(args: argparse.Namespace) -> List[str]:
     return [
-        "bash",
-        str(PROJECT_ROOT / "utils" / "space_MNI2orig.sh"),
-        "--subject",
-        args.subject,
-        "--mode",
-        "whole",
-        "--data-root",
-        str(args.output_root),
-        "--pred-root",
-        str(args.predictions_dir),
+        sys.executable, str(PROJECT_ROOT / 'inference/native.py'),
+        '--subject', args.subject, '--data-root', str(cache_directory(args) / 'volumes'),
+        '--pred-root', str(cache_directory(args) / 'predictions'), '--predict-mode', args.predict_mode,
+        '--output-dir', str(subject_directory(args) / 'ddsurfer'),
     ]
+
+
+def native_reference(args: argparse.Namespace) -> Path:
+    if args.brain_source is not None:
+        return args.brain_source
+    directory = cache_directory(args) / 'dti' / args.subject
+    for suffix in ('.nhdr', '.nii.gz', '.nrrd', '.nii'):
+        path = directory / f'{args.subject}-b0{suffix}'
+        if path.is_file():
+            return path
+    raise FileNotFoundError('No native b0 reference found; pass --brain-source with a native-space MRI')
+
+
+def build_freesurfer_command(args: argparse.Namespace) -> List[str]:
+    command = [sys.executable, str(PROJECT_ROOT / 'postprocess/pipeline.py'),
+               '--subject', args.subject,
+               '--brain-source', str(native_reference(args)),
+               '--output-root', str(args.output_root),
+               '--hemi', args.postprocess_hemi, '--atlases', args.postprocess_atlases,
+               '--threads', str(args.postprocess_threads)]
+    for hemi in ('lh', 'rh'):
+        for kind in ('white', 'pial'):
+            command += [f'--{hemi}-{kind}', str(subject_directory(args) / 'ddsurfer' / f'{hemi}.{kind}.obj')]
+    if args.freesurfer_home is not None:
+        command += ['--freesurfer-home', str(args.freesurfer_home)]
+    if args.postprocess_serial:
+        command += ['--serial']
+    return command
+
+
+def finalize_outputs(args):
+    directory = subject_directory(args)
+    logs = directory / 'logs'
+    logs.mkdir(parents=True, exist_ok=True)
+    record = cache_directory(args) / 'dti' / args.subject / 'raw_inputs.json'
+    if record.is_file():
+        shutil.copyfile(record, logs / 'raw_inputs.json')
+    prediction_records = {}
+    kinds = ('wm', 'pial') if args.predict_mode == 'all' else ('wm',)
+    for hemi, side in (('left', 'lh'), ('right', 'rh')):
+        for kind in kinds:
+            name = f'{side}.{"white" if kind == "wm" else "pial"}'
+            output = directory / 'ddsurfer' / f'{name}.obj'
+            if not output.is_file() or not output.stat().st_size:
+                raise RuntimeError(f'Native output missing: {output}')
+            source = cache_directory(args) / 'predictions/mni' / args.subject / f'{args.subject}_predicted_{kind}_surface_{hemi}.json'
+            prediction_records[name] = json.loads(source.read_text())
+    atomic_json(logs / 'prediction.json', prediction_records)
+    atomic_json(logs / 'pipeline.json', dict(subject=args.subject, coordinate_space='native_scanner_RAS_mm',
+                                           postprocess=args.freesurfer, completed=True))
+
+
+def clean_cache(args):
+    cache = cache_directory(args)
+    if cache.is_symlink():
+        raise ValueError('Refusing to remove a symlinked cache directory')
+    if cache.exists():
+        shutil.rmtree(cache)
+        logging.info('Removed intermediate cache: %s', cache)
 
 
 def main(argv: Iterable[str] | None = None) -> None:
     args = parse_args(argv)
-    logging.basicConfig(level=getattr(logging, args.log_level), format="[%(levelname)s] %(message)s")
+    if Path(args.subject).name != args.subject or args.subject in ('', '.', '..', 'fsaverage'):
+        raise ValueError('Invalid subject identifier')
+    if subject_directory(args).is_symlink():
+        raise ValueError('Refusing to write through a symlinked subject directory')
+    if cache_directory(args).is_symlink():
+        raise ValueError('Refusing to write through a symlinked cache directory')
 
+    if args.freesurfer:
+        if args.predict_mode != 'all':
+            raise ValueError('FreeSurfer postprocessing requires white and pial surfaces (--predict-mode all)')
+        if args.freesurfer_home is None:
+            raise ValueError('Set FREESURFER_HOME or pass --freesurfer-home')
+
+    preprocessing = None
     if not args.skip_preprocessing:
-        run_command(build_preprocessing_command(args))
-    else:
-        logging.info("Skipping preprocessing as requested.")
-
-    left_script = PROJECT_ROOT / "ddsurfer_predict_lh_dualstream.py"
-    right_script = PROJECT_ROOT / "ddsurfer_predict_rh_dualstream.py"
-
-    run_command(build_prediction_command(left_script, args, "left"))
-    run_command(build_prediction_command(right_script, args, "right"))
-
-    if args.skip_postprocessing:
-        logging.info("Skipping post-processing as requested.")
-        return
-
-    run_command(build_postprocessing_command(args))
+        preprocessing = build_preprocessing_command(args)
+        files = resolve_inputs(args.subject, args.raw_input_root,
+                               **{name: getattr(args, name) for name in INPUT_NAMES})
+        for path in files.values():
+            try:
+                path.relative_to(cache_directory(args))
+            except ValueError:
+                continue
+            raise ValueError('Source inputs must not be stored inside the disposable cache')
+    logs = subject_directory(args) / 'logs'
+    logs.mkdir(parents=True, exist_ok=True)
+    file_log = logging.FileHandler(logs / 'pipeline.log')
+    logging.basicConfig(level=getattr(logging, args.log_level), format="[%(levelname)s] %(message)s")
+    logging.getLogger().addHandler(file_log)
+    try:
+        if preprocessing is not None:
+            run_command(preprocessing, env=dict(os.environ, PYTHON_BIN=sys.executable))
+        else:
+            logging.info("Skipping preprocessing as requested.")
+        run_command(build_prediction_command(PROJECT_ROOT / 'DDSurfer_predict.py', args, 'both'))
+        run_command(build_postprocessing_command(args))
+        if args.freesurfer:
+            run_command(build_freesurfer_command(args))
+        finalize_outputs(args)
+        if not args.keep_cache:
+            clean_cache(args)
+        logging.info('Completed native outputs: %s', subject_directory(args))
+    except Exception:
+        logging.exception('Pipeline failed; intermediate cache retained for diagnosis.')
+        raise
+    finally:
+        logging.getLogger().removeHandler(file_log)
+        file_log.close()
 
 
 if __name__ == "__main__":

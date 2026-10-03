@@ -1,0 +1,102 @@
+{
+  "architecture": {
+    "C_in": 5,
+    "C_hid": [
+      32,
+      64,
+      128,
+      256,
+      512
+    ],
+    "inshape": [
+      112,
+      224,
+      176
+    ],
+    "depths": [
+      1,
+      1,
+      2,
+      6,
+      4
+    ],
+    "kernels": [
+      3,
+      3,
+      7,
+      7,
+      7
+    ],
+    "step_size": 0.02,
+    "M": 2,
+    "R": 3,
+    "refinement": {
+      "norm_type": "group",
+      "use_se": false,
+      "residual_gates": true,
+      "geometry_aware_lka": true,
+      "conditioned_attention": true,
+      "rk4_stage_time": true,
+      "encoder_fusion": true,
+      "cross_gate_policy": "conservative"
+    }
+  },
+  "geometry": {
+    "affine": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        -88.29999542236328
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        -129.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        -69.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "full_shape": [
+      176,
+      224,
+      176
+    ]
+  },
+  "precision": "bf16",
+  "postprocess_iters": {
+    "white": 10,
+    "pial": 0
+  },
+  "checkpoint_files": {
+    "left": {
+      "white": "ddsurfer_lh_wm.pt",
+      "pial": "ddsurfer_lh_pial.pt"
+    },
+    "right": {
+      "white": "ddsurfer_rh_wm.pt",
+      "pial": "ddsurfer_rh_pial.pt"
+    }
+  },
+  "templates": {
+    "left": {
+      "file": "ddsurfer_lh_template.obj",
+      "sha256": "4da63ee7b02bd3b45a1164c6c030fdd0e18903c821b47cdd7fc9d492b0a9ed1c"
+    },
+    "right": {
+      "file": "ddsurfer_rh_template.obj",
+      "sha256": "74186754cdac0510a595bab82818329703c9906384f1e6a8d1c8cad4eddaf1fe"
+    }
+  }
+}

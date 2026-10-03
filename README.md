@@ -4,6 +4,8 @@ DDSurfer reconstructs white and pial cortical surfaces from diffusion MRI inputs
 This release bundles preprocessing utilities, dual-stream TANet inference, and
 post-processing tools in a single repository.
 
+Model weights are stored directly in `ckpts/` and loaded automatically.
+
 ## Publication
 
 DDSurfer has been accepted and published online in **Advanced Science**:
@@ -32,57 +34,135 @@ If you use DDSurfer in your research, please cite:
 }
 ```
 
-### Typical Workflow
+### Inputs
 
-1. **Prepare data**  
-   Use one of these input layouts:
-   - place raw diffusion inputs under `raw-dwi-inputs/<subID>/T1w/Diffusion/`
-   - or place precomputed registered DTI inputs under `DTI-inputs/<subID>/`
+The pipeline accepts four files, as in
+[DDParcel](https://github.com/zhangfanmark/DDParcel/blob/main/process.sh):
+corrected 4D DWI, bval, bvec, and a brain mask on the same native voxel grid.
+No precomputed DTI or structural MRI is required.
 
-2. **Run preprocessing**  
-   ```bash
-   bash Data-Preprocessing.sh --subject <subID>
-   ```
-   The preprocessing stages are DTI estimation, atlas registration, skull
-   stripping, template-space resampling, and z-score normalisation. Use
-   `--raw-input-root`, `--input-root`, and `--output-root` if your directories
-   differ from the defaults.
+```text
+inputs/<subID>/
+  dwi.nii.gz
+  dwi.bval
+  dwi.bvec
+  mask.nii.gz
+```
 
-3. **Predict cortical surfaces (MNI space outputs)**  
-   ```bash
-   python3 ddsurfer_predict_lh_dualstream.py --subjects <subID>
-   python3 ddsurfer_predict_rh_dualstream.py --subjects <subID>
-   ```
-   Adjust `--device`, `--data_type`, and `--input_root` / `--output_dir` as
-   needed. The scripts require the outputs from preprocessing and write meshes
-   to `pred_results_DDSurfer/mni/<subID>/`.
+DDParcel-style subject filenames and the HCP `T1w/Diffusion/` layout are also
+accepted. Motion/eddy/susceptibility correction and the corresponding gradient
+updates must already be done.
 
-4. **Transform meshes back to native space**  
-   ```bash
-   bash utils/space_MNI2orig.sh --subject <subID> --mode whole
-   ```
-   The resulting surfaces are written to `pred_results_DDSurfer/native/<subID>/`.
+### Run DDSurfer
 
-5. **One-command pipeline (Python)**  
-   ```bash
-   python3 run_ddsurfer_pipeline.py --subject <subID>
-   ```
+From the repository root:
 
-6. **One-command pipeline (Shell)**  
-   ```bash
-   bash run_ddsurfer_pipeline.sh --subject <subID>
-   ```
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID>
+# Equivalent shell entry point:
+bash run_ddsurfer_pipeline.sh --subject <subID>
+```
 
-Both wrappers accept flags to skip preprocessing or post-processing and expose
-the same configuration knobs (input/output roots, device, prediction mode).
+For files stored elsewhere:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> \
+  --dwi ./data/dwi.nii.gz --bval ./data/dwi.bval \
+  --bvec ./data/dwi.bvec --mask ./data/mask.nii.gz
+```
+
+The workflow is DWI -> DTI features -> MNI inference -> native surfaces.
+Volume preprocessing is provided by `preprocessing/run.sh`, including the
+DTI-estimation stage in `preprocessing/dti.sh`.
+Only native surfaces are retained. DTI maps, resampled volumes and MNI meshes
+are intermediate cache files and are removed after success by default.
+Use `--keep-cache` to retain them; failed runs retain the cache for diagnosis.
+The source input files are never modified or removed.
+
+Inputs default to `inputs/<subID>/`; results default to `outputs/<subID>/`.
+Use `--raw-input-root` and `--output-root` to change these roots.
+Use `--device cpu` for CPU inference or `--device cuda:0` to select a GPU.
+CUDA `--precision auto` selects BF16; CPU uses FP32.
+
+### Outputs
+
+```text
+outputs/<subID>/
+  ddsurfer/
+    lh.white.obj
+    lh.pial.obj
+    rh.white.obj
+    rh.pial.obj
+  logs/           input records, transform and execution logs
+```
+
+Surface outputs use OBJ only, in **native scanner RAS, in millimetres**.
+No MNI-space surface is written outside the disposable cache.
+
+### Optional Post-process
+
+Post-processing is **disabled by default**. Configure `FREESURFER_HOME` and
+`FS_LICENSE`, then add `--post-process`:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
+```
+
+`--postprocess-hemi left` or `right` selects one hemisphere;
+`--postprocess-atlases aparc` selects one atlas. Otherwise both hemispheres
+and the `aparc,aparc.a2009s` atlases are processed.
+
+**DDSurfer post-process is plug-and-play and can be used independently.**
+Its only required data inputs are four native cortical surfaces: left/right
+white and pial. They may be reconstructed by DDSurfer, FreeSurfer, FastSurfer
+or another method; DWI, DTI and structural MRI are not required. FreeSurfer,
+its license, and `fsaverage` must be configured.
+
+```bash
+bash postprocess/run.sh --subject <subID> \
+  --lh-white ./outputs/<subID>/ddsurfer/lh.white.obj --lh-pial ./outputs/<subID>/ddsurfer/lh.pial.obj \
+  --rh-white ./outputs/<subID>/ddsurfer/rh.white.obj --rh-pial ./outputs/<subID>/ddsurfer/rh.pial.obj
+```
+
+The four surfaces must share native scanner-RAS millimetre coordinates.
+Each white/pial pair must preserve vertex correspondence and topology.
+Indexed OBJ/PLY/OFF, STL and FreeSurfer binary surfaces are supported.
+Paired STL inputs must preserve corresponding triangle order.
+No nearest-neighbour correspondence is guessed.
+
+Post-process adds these standard FreeSurfer directories directly under
+`outputs/<subID>/`:
+
+```text
+surf/       white/pial, curvature, sulcal depth, thickness, area,
+            inflated surfaces, spheres and spherical registration
+label/      cortex labels, atlas annotations and regional labels
+stats/      surface-only regional statistics
+fsaverage/  thickness, curvature, sulcal-depth and area overlays
+mri/        native reference geometry for FreeSurfer compatibility
+logs/       command logs, timing and coordinate checks
+```
+
+Without an MRI, the reference under `mri/` contains geometry only, not acquired
+or synthesized anatomical intensities. No segmentation-derived tissue volumes
+are reported. See [postprocess usage](postprocess/README.md) for details.
+
+Verify weights with `cd ckpts && sha256sum -c SHA256SUMS`.
 
 ### Key Dependencies
 
 - Python 3.8+
-- PyTorch with CUDA support (optional for GPU acceleration)
-- SimpleITK, nibabel, trimesh, tqdm, pytorch3d (for loss utilities)
+- PyTorch and torchvision (CUDA optional for GPU acceleration)
+- NumPy, SciPy, SimpleITK, nibabel, trimesh; pynrrd for DWI conversion
+- Slicer with SlicerDMRI for raw-DWI processing; set `SLICER_PATH` or put `Slicer` on `PATH`.
+- FreeSurfer with a valid license and `fsaverage` (optional surface post-processing).
 
 Refer to project-specific requirements for exact versions used during training.
+
+### Slicer Extension
+
+**SlicerDDSurfer will be open-sourced soon** at
+[ChengjinLii/SlicerDDSurfer](https://github.com/ChengjinLii/SlicerDDSurfer).
 
 ### Support
 
