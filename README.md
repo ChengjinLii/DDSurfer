@@ -47,8 +47,7 @@ If you use DDSurfer in your research, please cite:
 
 ## Inputs
 
-The pipeline accepts four files, as in
-[DDParcel](https://github.com/zhangfanmark/DDParcel/blob/main/process.sh):
+The pipeline accepts four files:
 corrected 4D DWI, bval, bvec, and a brain mask on the same native voxel grid.
 No precomputed DTI or structural MRI is required.
 
@@ -60,9 +59,8 @@ inputs/<subID>/
   mask.nii.gz
 ```
 
-DDParcel-style subject filenames and the HCP `T1w/Diffusion/` layout are also
-accepted. Motion/eddy/susceptibility correction and the corresponding gradient
-updates must already be done.
+Motion/eddy/susceptibility correction and the corresponding gradient updates
+must already be done.
 
 ---
 
@@ -84,21 +82,31 @@ python3 run_ddsurfer_pipeline.py --subject <subID> \
   --bvec ./data/dwi.bvec --mask ./data/mask.nii.gz
 ```
 
-The workflow is DWI -> DTI features -> MNI inference -> native surfaces.
-Volume preprocessing is provided by `preprocessing/run.sh`, including the
-DTI-estimation stage in `preprocessing/dti.sh`.
-Only the five inference channels are resampled to atlas space. Use
-`--preprocess-jobs 2` to run independent DTI stages concurrently (default: 1).
-Native surfaces and unnormalized native-space DTI scalar maps are retained.
-Registered/normalized volumes, tensors and MNI meshes are intermediate cache
-files and are removed after success by default.
-Use `--keep-cache` to retain them; failed runs retain the cache for diagnosis.
-The source input files are never modified or removed.
+**Workflow**
 
-Inputs default to `inputs/<subID>/`; results default to `outputs/<subID>/`.
-Use `--raw-input-root` and `--output-root` to change these roots.
-Use `--device cpu` for CPU inference or `--device cuda:0` to select a GPU.
-CUDA `--precision auto` selects BF16; CPU uses FP32.
+`DWI -> DTI features -> MNI inference -> native surfaces`
+
+Preprocessing runs automatically before surface prediction.
+
+**Default paths**
+
+- Inputs: `inputs/<subID>/`
+- Outputs: `outputs/<subID>/`
+
+**Common options**
+
+| Option | Usage |
+| --- | --- |
+| `--raw-input-root <path>` | Change the input directory. |
+| `--output-root <path>` | Change the output directory. |
+| `--device cuda:0` or `--device cpu` | Select GPU or CPU inference. |
+| `--precision auto` | Use BF16 for CUDA inference (requires BF16 support), or FP32 on CPU. |
+| `--preprocess-jobs 2` | Run independent DTI stages concurrently; default: 1. |
+| `--keep-cache` | Retain intermediate files and detailed stage logs. |
+
+DTI maps and surfaces are saved automatically. Intermediate cache is removed
+after success; failed runs retain it for diagnosis. Source inputs are never
+modified or removed.
 
 ---
 
@@ -118,13 +126,8 @@ outputs/<subID>/
     lh.pial.obj
     rh.white.obj
     rh.pial.obj
-  logs/           input records, transform and execution logs
+  logs/           run summary, input records and execution log
 ```
-
-Surface outputs use OBJ only, in **native scanner RAS, in millimetres**.
-DTI maps retain the original DWI grid, physical space and unnormalized values;
-they are not the z-scored atlas-space inputs used by the network.
-No MNI-space surface is written outside the disposable cache.
 
 ---
 

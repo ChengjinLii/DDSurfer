@@ -105,6 +105,23 @@ class NativeDtiTests(unittest.TestCase):
             self.assertEqual(len(result['scalar_maps']), 5)
             self.assertNotIn('Trace', result['scalar_maps'])
 
+    def test_export_state_stays_in_cache_and_cannot_follow_a_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            make_native_cache(root / 'source')
+            output = root / 'outputs/x/dti'
+            export_native('x', root / 'source', output)
+            self.assertEqual([p.name for p in (output.parent / 'logs').iterdir()], ['dti.json'])
+            self.assertTrue((output.parent / '.cache/state/native_dti/stages.json').is_file())
+            protected = root / 'protected'
+            protected.mkdir()
+            other = root / 'outputs/y'
+            other.mkdir()
+            (other / '.cache').symlink_to(protected, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'symlinked cache'):
+                export_native('x', root / 'source', other / 'dti')
+            self.assertFalse(list(protected.iterdir()))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -59,10 +59,14 @@ def export_native(subject, input_dir, output_dir, record=None):
             raise FileNotFoundError(f'Missing native DTI scalar: {subject}-dti-{scalar}')
         sources[name] = source
     logs = output_dir.parent / 'logs'
+    cache_root = output_dir.parent / '.cache'
+    if cache_root.is_symlink():
+        raise ValueError('Refusing to write through a symlinked cache directory')
+    state = cache_root / 'state/native_dti'
     implementation = [Path(__file__), Path(__file__).with_name('cache.py'),
                       Path(__file__).resolve().parents[1] / 'utils/stages.py']
-    with subject_lock(logs / '.native_dti.lock'):
-        cache = StageCache(logs / 'native_dti_stages.json', related_files, validate_output)
+    with subject_lock(state / '.lock'):
+        cache = StageCache(state / 'stages.json', related_files, validate_output)
         maps = {}
         for name, source in sources.items():
             output = output_dir / f'{subject}-{name}.nii.gz'

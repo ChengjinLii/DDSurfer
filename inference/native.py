@@ -31,6 +31,7 @@ def main(argv=None):
     parser.add_argument('--pred-root', required=True, type=Path)
     parser.add_argument('--predict-mode', choices=('wm','all'), default='all')
     parser.add_argument('--output-dir', type=Path, help='Final native surface directory.')
+    parser.add_argument('--metadata-dir', type=Path, help='Directory for detailed conversion records.')
     args = parser.parse_args(argv)
     transform_path = args.data_root/args.subject/f'{args.subject}-b0ToAtlasT2.tfm'
     transform = sitk.ReadTransform(str(transform_path))
@@ -52,7 +53,8 @@ def main(argv=None):
             stem = f'{short}.{"white" if surface == "wm" else "pial"}'
             output=directory/(f'{stem}.obj' if args.output_dir is not None else f'{args.subject}_predicted_{surface}_{short}.obj')
             error = write_obj(output, vertices, mesh.faces)
-            metadata_path = logs / f'{stem}.json' if args.output_dir is not None else output.with_suffix('.json')
+            metadata_path = (args.metadata_dir / f'{stem}.json' if args.metadata_dir is not None else
+                             logs / f'{stem}.json' if args.output_dir is not None else output.with_suffix('.json'))
             atomic_json(metadata_path,dict(coordinate_space='native_scanner_RAS_mm',
                         transform=str(saved_transform),transform_sha256=sha256_file(saved_transform),
                         transform_direction='atlas_LPS_to_native_LPS_pull_map',source_sha256=sha256_file(source),

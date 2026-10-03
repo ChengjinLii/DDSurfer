@@ -10,6 +10,8 @@ import shlex
 import subprocess
 import shutil
 import sys
+from collections import deque
+from time import perf_counter
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
@@ -19,10 +21,33 @@ from utils.files import atomic_json
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def run_command(command: Sequence[str], *, cwd: Path | None = None, env: dict | None = None) -> None:
-    """Execute `command`, logging the shell equivalent for reproducibility."""
-    logging.info("Executing: %s", " ".join(shlex.quote(part) for part in command))
-    subprocess.run(command, cwd=cwd, env=env, check=True)
+def run_command(command: Sequence[str], *, cwd: Path | None = None, env: dict | None = None,
+                log_path: Path | None = None) -> None:
+    """Keep the run log concise and write full command output to the cache."""
+    script = Path(command[1] if len(command) > 1 else command[0])
+    try:
+        name = str(script.relative_to(PROJECT_ROOT))
+    except ValueError:
+        name = script.name
+    logging.info('Running %s', name)
+    logging.debug('Executing: %s', ' '.join(shlex.quote(str(part)) for part in command))
+    started = perf_counter()
+    if log_path is None:
+        subprocess.run(command, cwd=cwd, env=env, check=True)
+    else:
+        log_path = Path(log_path)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open('w') as stream:
+            stream.write('$ ' + ' '.join(shlex.quote(str(part)) for part in command) + '\n')
+            stream.flush()
+            result = subprocess.run(command, cwd=cwd, env=env, stdout=stream,
+                                    stderr=subprocess.STDOUT)
+        if result.returncode:
+            with log_path.open(errors='replace') as stream:
+                tail = ''.join(deque(stream, maxlen=15)).rstrip()
+            logging.error('%s failed; detailed log: %s\n%s', name, log_path, tail)
+            raise subprocess.CalledProcessError(result.returncode, command)
+    logging.info('Completed %s (%.1fs)', name, perf_counter() - started)
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
@@ -42,7 +67,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--raw-input-root",
         type=Path,
         default=PROJECT_ROOT / "inputs",
-        help="Raw DWI input directory (DDParcel file layout or HCP subject tree).",
+        help="Raw DWI input directory.",
     )
     for name in INPUT_NAMES:
         parser.add_argument(f'--{name}', type=Path,
@@ -114,7 +139,7 @@ def build_preprocessing_command(args: argparse.Namespace) -> List[str]:
         str(cache_directory(args) / 'volumes'),
         '--minimal',
         '--jobs', str(args.preprocess_jobs),
-        '--log-dir', str(subject_directory(args) / 'logs/preprocessing'),
+        '--log-dir', str(cache_directory(args) / 'logs/preprocessing'),
     ]
     for name in INPUT_NAMES:
         command += [f'--{name}', str(files[name])]
@@ -157,6 +182,7 @@ def build_native_conversion_command(args: argparse.Namespace) -> List[str]:
         '--subject', args.subject, '--data-root', str(cache_directory(args) / 'volumes'),
         '--pred-root', str(cache_directory(args) / 'predictions'), '--predict-mode', args.predict_mode,
         '--output-dir', str(subject_directory(args) / 'ddsurfer'),
+        '--metadata-dir', str(cache_directory(args) / 'logs/native'),
     ]
 
 
@@ -204,7 +230,7 @@ def finalize_outputs(args):
     record = cache_directory(args) / 'dti' / args.subject / 'raw_inputs.json'
     if record.is_file():
         shutil.copyfile(record, logs / 'raw_inputs.json')
-    prediction_records = {}
+    surfaces = {}
     kinds = ('wm', 'pial') if args.predict_mode == 'all' else ('wm',)
     for hemi, side in (('left', 'lh'), ('right', 'rh')):
         for kind in kinds:
@@ -213,10 +239,14 @@ def finalize_outputs(args):
             if not output.is_file() or not output.stat().st_size:
                 raise RuntimeError(f'Native output missing: {output}')
             source = cache_directory(args) / 'predictions/mni' / args.subject / f'{args.subject}_predicted_{kind}_surface_{hemi}.json'
-            prediction_records[name] = json.loads(source.read_text())
-    atomic_json(logs / 'prediction.json', prediction_records)
+            prediction = json.loads(source.read_text())
+            native = json.loads((cache_directory(args) / 'logs/native' / f'{name}.json').read_text())
+            surfaces[name] = dict(file=f'ddsurfer/{name}.obj', sha256=native['output_sha256'],
+                                  checkpoint=prediction['checkpoint_file'],
+                                  checkpoint_sha256=prediction['checkpoint_sha256'],
+                                  precision=prediction['precision'])
     atomic_json(logs / 'pipeline.json', dict(subject=args.subject, coordinate_space='native_scanner_RAS_mm',
-                                           postprocess=args.freesurfer, completed=True))
+                                           postprocess=args.freesurfer, completed=True, surfaces=surfaces))
 
 
 def clean_cache(args):
@@ -259,18 +289,21 @@ def main(argv: Iterable[str] | None = None) -> None:
     logs = subject_directory(args) / 'logs'
     logs.mkdir(parents=True, exist_ok=True)
     file_log = logging.FileHandler(logs / 'pipeline.log')
+    file_log.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(message)s', '%Y-%m-%d %H:%M:%S'))
     logging.basicConfig(level=getattr(logging, args.log_level), format="[%(levelname)s] %(message)s")
     logging.getLogger().addHandler(file_log)
     try:
         if preprocessing is not None:
-            run_command(preprocessing, env=dict(os.environ, PYTHON_BIN=sys.executable))
+            run_command(preprocessing, env=dict(os.environ, PYTHON_BIN=sys.executable),
+                        log_path=cache_directory(args) / 'logs/preprocessing.log')
         else:
             logging.info("Skipping preprocessing as requested.")
-        run_command(build_native_dti_export_command(args))
-        run_command(build_prediction_command(PROJECT_ROOT / 'DDSurfer_predict.py', args, 'both'))
-        run_command(build_native_conversion_command(args))
+        run_command(build_native_dti_export_command(args), log_path=cache_directory(args) / 'logs/dti.log')
+        run_command(build_prediction_command(PROJECT_ROOT / 'DDSurfer_predict.py', args, 'both'),
+                    log_path=cache_directory(args) / 'logs/prediction.log')
+        run_command(build_native_conversion_command(args), log_path=cache_directory(args) / 'logs/native.log')
         if args.freesurfer:
-            run_command(build_freesurfer_command(args))
+            run_command(build_freesurfer_command(args), log_path=cache_directory(args) / 'logs/postprocessing.log')
         finalize_outputs(args)
         if not args.keep_cache:
             clean_cache(args)
