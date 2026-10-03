@@ -20,6 +20,8 @@ PYTHON_BIN=${PYTHON_BIN:-python3}
 INPUT_ROOT=${INPUT_ROOT:-"$PROJECT_ROOT/inputs"}
 OUTPUT_ROOT=${OUTPUT_ROOT:-"$PROJECT_ROOT/outputs/.cache/dti"}
 MASK_FLIP=${MASK_FLIP:-1}
+JOBS=${PREPROCESS_JOBS:-1}
+MINIMAL=0
 
 SUBJECT_ID=""
 DWI=""
@@ -65,6 +67,8 @@ Options:
       --slicer-path <path>    Slicer installation used for DMRI CLI modules.
       --reference-image <path> Reference atlas/T2 image for registration.
       --python-bin <bin>      Python interpreter for helper conversion scripts.
+      --minimal              Only generate the five inference scalar channels.
+      --jobs <N>             Concurrent independent scalar stages (default: 1).
       --mask-flip <mode>      Mask flip mode for normalization (default: 1).
   -h, --help                  Show this message and exit.
 
@@ -112,6 +116,15 @@ while (($#)); do
     --python-bin)
       [[ $# -ge 2 ]] || die "Option $1 requires an argument"
       PYTHON_BIN=$2
+      shift 2
+      ;;
+    --minimal)
+      MINIMAL=1
+      shift
+      ;;
+    --jobs)
+      [[ $# -ge 2 ]] || die "Option $1 requires an argument"
+      JOBS=$2
       shift 2
       ;;
     --mask-flip)
@@ -231,98 +244,15 @@ DTI_SCALARS=("$SLICER_PATH/Slicer" --launch "$CLI_MODULES_PATH/DiffusionTensorSc
 BRAINS_FIT=("$SLICER_PATH/Slicer" --launch "$CLI_MODULES_PATH2/BRAINSFit")
 RESAMPLE_VOLUME=("$SLICER_PATH/Slicer" --launch "$CLI_MODULES_PATH2/ResampleScalarVectorDWIVolume")
 
-NRRD_DWI="$OUTPUT_DIR/$SUBJECT_ID.nhdr"
-NRRD_MASK="$OUTPUT_DIR/$SUBJECT_ID-mask.nhdr"
-NRRD_DTI="$OUTPUT_DIR/$SUBJECT_ID-dti.nhdr"
-NRRD_B0="$OUTPUT_DIR/$SUBJECT_ID-b0.nhdr"
-
-NRRD_FA="$OUTPUT_DIR/$SUBJECT_ID-dti-FractionalAnisotropy.nhdr"
-NRRD_TRACE="$OUTPUT_DIR/$SUBJECT_ID-dti-Trace.nhdr"
-NRRD_MINEIG="$OUTPUT_DIR/$SUBJECT_ID-dti-MinEigenvalue.nhdr"
-NRRD_MIDEIG="$OUTPUT_DIR/$SUBJECT_ID-dti-MidEigenvalue.nhdr"
-NRRD_MAXEIG="$OUTPUT_DIR/$SUBJECT_ID-dti-MaxEigenvalue.nhdr"
-NRRD_MD="$OUTPUT_DIR/$SUBJECT_ID-dti-MeanDiffusivity.nhdr"
-
-TFM="$OUTPUT_DIR/$SUBJECT_ID-b0ToAtlasT2.tfm"
-
-NII_FA_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-FractionalAnisotropy-Reg.nii.gz"
-NII_TRACE_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-Trace-Reg.nii.gz"
-NII_MINEIG_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-MinEigenvalue-Reg.nii.gz"
-NII_MIDEIG_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-MidEigenvalue-Reg.nii.gz"
-NII_MD_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-MeanDiffusivity-Reg.nii.gz"
-NII_MAXEIG_REG="$OUTPUT_DIR/$SUBJECT_ID-dti-MaxEigenvalue-Reg.nii.gz"
-NII_MASK_REG="$OUTPUT_DIR/$SUBJECT_ID-mask-Reg.nii.gz"
-
-NII_FA_REG_NORM="$OUTPUT_DIR/$SUBJECT_ID-dti-FractionalAnisotropy-Reg-NormMasked.nii.gz"
-NII_TRACE_REG_NORM="$OUTPUT_DIR/$SUBJECT_ID-dti-Trace-Reg-NormMasked.nii.gz"
-NII_MINEIG_REG_NORM="$OUTPUT_DIR/$SUBJECT_ID-dti-MinEigenvalue-Reg-NormMasked.nii.gz"
-NII_MIDEIG_REG_NORM="$OUTPUT_DIR/$SUBJECT_ID-dti-MidEigenvalue-Reg-NormMasked.nii.gz"
-
 log "Starting DTI processing for $SUBJECT_ID"
 log "Raw diffusion input: $DWI_SOURCE"
 log "DDSurfer DTI output: $OUTPUT_DIR"
 log "Reference image: $REFERENCE_IMAGE"
 
-if [[ ! -f "$NRRD_DWI" || ! -f "$NRRD_MASK" ]]; then
-  log "Converting diffusion volume and mask to NHDR"
-  run_python_helper "$PYTHON_SCRIPTS_PATH/nhdr_write.py" --nifti "$DWI" --bval "$BVAL" --bvec "$BVEC" --nhdr "$NRRD_DWI"
-  run_python_helper "$PYTHON_SCRIPTS_PATH/nhdr_write.py" --nifti "$MASK" --nhdr "$NRRD_MASK"
-fi
-
-if [[ ! -f "$NRRD_DTI" || ! -f "$NRRD_B0" ]]; then
-  log "Estimating diffusion tensor and b0 image"
-  "${DWI_TO_DTI_ESTIMATION[@]}" --enumeration WLS "$NRRD_DWI" "$NRRD_DTI" "$NRRD_B0"
-fi
-
-if [[ ! -f "$NRRD_FA" || ! -f "$NRRD_TRACE" || ! -f "$NRRD_MINEIG" || ! -f "$NRRD_MIDEIG" || ! -f "$NRRD_MAXEIG" || ! -f "$NRRD_MD" ]]; then
-  log "Computing tensor-derived scalar maps"
-  "${DTI_SCALARS[@]}" --enumeration FractionalAnisotropy "$NRRD_DTI" "$NRRD_FA"
-  "${DTI_SCALARS[@]}" --enumeration Trace "$NRRD_DTI" "$NRRD_TRACE"
-  "${DTI_SCALARS[@]}" --enumeration MinEigenvalue "$NRRD_DTI" "$NRRD_MINEIG"
-  "${DTI_SCALARS[@]}" --enumeration MidEigenvalue "$NRRD_DTI" "$NRRD_MIDEIG"
-  "${DTI_SCALARS[@]}" --enumeration MaxEigenvalue "$NRRD_DTI" "$NRRD_MAXEIG"
-  "${DTI_SCALARS[@]}" --enumeration MeanDiffusivity "$NRRD_DTI" "$NRRD_MD"
-fi
-
-if [[ ! -f "$TFM" ]]; then
-  log "Registering b0 to atlas reference"
-  "${BRAINS_FIT[@]}" \
-    --fixedVolume "$REFERENCE_IMAGE" \
-    --movingVolume "$NRRD_B0" \
-    --linearTransform "$TFM" \
-    --useRigid \
-    --useAffine
-fi
-
-if [[ ! -f "$NII_FA_REG" || ! -f "$NII_TRACE_REG" || ! -f "$NII_MINEIG_REG" || ! -f "$NII_MIDEIG_REG" || ! -f "$NII_MAXEIG_REG" || ! -f "$NII_MD_REG" || ! -f "$NII_MASK_REG" ]]; then
-  log "Resampling scalar maps into atlas reference space"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_FA" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_FA_REG"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_TRACE" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_TRACE_REG"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_MINEIG" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_MINEIG_REG"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_MIDEIG" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_MIDEIG_REG"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_MD" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_MD_REG"
-  "${RESAMPLE_VOLUME[@]}" -i linear "$NRRD_MAXEIG" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_MAXEIG_REG"
-  "${RESAMPLE_VOLUME[@]}" -i nn "$MASK" --Reference "$REFERENCE_IMAGE" --transformationFile "$TFM" "$NII_MASK_REG"
-fi
-
-if [[ ! -f "$NII_FA_REG_NORM" || ! -f "$NII_TRACE_REG_NORM" || ! -f "$NII_MINEIG_REG_NORM" || ! -f "$NII_MIDEIG_REG_NORM" ]]; then
-  log "Normalizing selected registered scalar maps inside the mask"
-  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_FA_REG" --mask "$NII_MASK_REG" --output "$NII_FA_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_TRACE_REG" --mask "$NII_MASK_REG" --output "$NII_TRACE_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_MINEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MINEIG_REG_NORM" --flip "$MASK_FLIP"
-  run_python_helper "$SCRIPT_DIR/normalize_dti.py" --input "$NII_MIDEIG_REG" --mask "$NII_MASK_REG" --output "$NII_MIDEIG_REG_NORM" --flip "$MASK_FLIP"
-fi
-
-for expected_output in \
-  "$TFM" \
-  "$NII_MASK_REG" \
-  "$NII_FA_REG" \
-  "$NII_TRACE_REG" \
-  "$NII_MINEIG_REG" \
-  "$NII_MIDEIG_REG" \
-  "$NII_MAXEIG_REG" \
-  "$NII_MD_REG"; do
-  [[ -f "$expected_output" ]] || die "Expected output missing: $expected_output"
-done
-
+command=("$PYTHON_BIN" "$SCRIPT_DIR/dti.py" --subject "$SUBJECT_ID"
+         --output-dir "$OUTPUT_DIR" --dwi "$DWI" --bval "$BVAL" --bvec "$BVEC" --mask "$MASK"
+         --slicer-path "$SLICER_PATH" --dmri-cli "$CLI_MODULES_PATH" --core-cli "$CLI_MODULES_PATH2"
+         --reference-image "$REFERENCE_IMAGE" --mask-flip "$MASK_FLIP" --jobs "$JOBS")
+[[ "$MINIMAL" -eq 0 ]] || command+=(--minimal)
+"${command[@]}"
 log "DTI processing completed successfully for $SUBJECT_ID"

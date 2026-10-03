@@ -20,6 +20,7 @@ import nibabel as nib
 import numpy as np
 
 from utils.files import atomic_json, sha256_file
+from utils.stages import StageCache, subject_lock
 from postprocessing.geometry import load_pair, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,13 @@ def parse_args(argv=None):
 
 
 def run(args):
+    if Path(args.subject).name != args.subject or args.subject in ('', '.', '..', 'fsaverage'):
+        raise ValueError('Invalid subject identifier')
+    with subject_lock(args.output_root / args.subject / 'logs/postprocess.lock'):
+        return run_locked(args)
+
+
+def run_locked(args):
     if Path(args.subject).name != args.subject or args.subject in ('', '.', '..', 'fsaverage'):
         raise ValueError('Invalid subject identifier')
     if args.threads < 1:
@@ -86,6 +94,7 @@ def run(args):
     fsaverage = home / 'subjects/fsaverage'
     for hemi in hemis:
         required = [fsaverage / 'label' / f'{hemi}.cortex.label',
+                    fsaverage / 'surf' / f'{hemi}.sphere.reg',
                     home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif']
         required += [fsaverage / 'label' / f'{hemi}.{atlas}.annot' for atlas in atlases]
         for path in required:
@@ -114,7 +123,11 @@ def run(args):
         if average_link.resolve() != fsaverage.resolve():
             raise ValueError('SUBJECTS_DIR/fsaverage points to an unexpected template')
     else:
-        average_link.symlink_to(fsaverage, target_is_directory=True)
+        try:
+            average_link.symlink_to(fsaverage, target_is_directory=True)
+        except FileExistsError:
+            if average_link.resolve() != fsaverage.resolve():
+                raise ValueError('SUBJECTS_DIR/fsaverage points to an unexpected template')
     workers = min(len(hemis), args.threads, 1 if args.serial else 2)
     per_hemi_threads = max(1, args.threads // workers)
     env = dict(os.environ, FREESURFER_HOME=str(home), SUBJECTS_DIR=str(root), FS_LICENSE=str(license_file.resolve()),
@@ -124,17 +137,34 @@ def run(args):
     log_path = subject_dir / 'logs/postprocess.log'
     completed_path = subject_dir / 'logs/completed.json'
     done = json.loads(completed_path.read_text()) if completed_path.exists() else {}
+    dependencies_path = subject_dir / 'logs/stage_inputs.json'
+    dependencies = json.loads(dependencies_path.read_text()) if dependencies_path.exists() else {}
+    preparation = StageCache(subject_dir / 'logs/preparation.json')
     state_lock = Lock()
     timings_path = subject_dir / 'logs/timings.json'
     timings = json.loads(timings_path.read_text()) if timings_path.exists() else {}
     qc = dict(coordinate_space='native_scanner_RAS_mm', surface_storage='FreeSurfer_surface_RAS_mm',
               reference_content=signature['reference_content'], hemispheres={})
 
-    def execute(key, command, outputs):
+    def execute(key, command, outputs, inputs):
         outputs = [Path(path) for path in outputs]
-        if key in done and all(path.is_file() and sha256_file(path) == done[key].get(str(path)) for path in outputs):
+        executable = Path(sys.executable) if command[0] == sys.executable else home / 'bin' / command[0]
+        implementation = [executable, Path(__file__)]
+        if command[0] == sys.executable:
+            implementation.append(Path(command[1]))
+        signature = dict(command=[str(v) for v in command],
+                         inputs=preparation.fingerprints(list(inputs) + implementation))
+        if (dependencies.get(key) == signature and key in done and
+                all(path.is_file() and preparation.digest(path) == done[key].get(str(path)) for path in outputs)):
             print(f'[skip] {key}', flush=True)
             return
+        with state_lock:
+            done.pop(key, None)
+            dependencies.pop(key, None)
+            atomic_json(completed_path, done)
+            atomic_json(dependencies_path, dependencies)
+        before = {path: (path.stat().st_ino, path.stat().st_mtime_ns, path.stat().st_ctime_ns)
+                  for path in outputs if path.is_file()}
         stage_log = subject_dir / 'logs' / f'{key.split(".")[0]}.log'
         with stage_log.open('a') as log:
             message = f'[run] {key}: {shlex.join([str(v) for v in command])}'
@@ -149,64 +179,95 @@ def run(args):
                 raise RuntimeError(f'{key} failed (exit {error.returncode}); see {stage_log}') from error
         if not all(path.is_file() and path.stat().st_size > 0 for path in outputs):
             raise RuntimeError(f'{key} returned without the expected outputs; see {stage_log}')
+        if any((path.stat().st_ino, path.stat().st_mtime_ns, path.stat().st_ctime_ns) == before.get(path)
+               for path in outputs):
+            raise RuntimeError(f'{key} did not refresh the expected outputs; see {stage_log}')
         with state_lock:
             done[key] = {str(path): sha256_file(path) for path in outputs}
+            dependencies[key] = signature
             atomic_json(completed_path, done)
+            atomic_json(dependencies_path, dependencies)
             timings[key] = dict(seconds=perf_counter() - started)
             atomic_json(timings_path, timings)
 
     brain_path = subject_dir / 'mri/brain.mgz'
-    pairs = {hemi: load_pair(surfaces[hemi]['white'], surfaces[hemi]['pial']) for hemi in hemis}
-    image = (prepare_brain(args.brain_source, brain_path) if args.brain_source is not None
-             else prepare_surface_reference([mesh for pair in pairs.values() for mesh in pair], brain_path))
-    shutil.copyfile(brain_path, subject_dir / 'mri/orig.mgz')
     surf = subject_dir / 'surf'
     label = subject_dir / 'label'
+    prepared_qc = subject_dir / 'logs/prepared_qc.json'
+    prepared_outputs = [brain_path, subject_dir / 'mri/orig.mgz', prepared_qc]
+    prepared_outputs += [surf / f'{hemi}.{kind}' for hemi in hemis for kind in ('white', 'pial', 'orig', 'smoothwm')]
+
+    def prepare(staged):
+        targets = dict(zip(prepared_outputs, staged))
+        pairs = {hemi: load_pair(surfaces[hemi]['white'], surfaces[hemi]['pial']) for hemi in hemis}
+        image = (prepare_brain(args.brain_source, targets[brain_path]) if args.brain_source is not None
+                 else prepare_surface_reference([mesh for pair in pairs.values() for mesh in pair], targets[brain_path]))
+        shutil.copyfile(targets[brain_path], targets[subject_dir / 'mri/orig.mgz'])
+        checks = {}
+        for hemi, pair in pairs.items():
+            checks[hemi] = {kind: write_surface(mesh, image, targets[surf / f'{hemi}.{kind}'])
+                            for kind, mesh in zip(('white', 'pial'), pair)}
+            for kind in ('orig', 'smoothwm'):
+                shutil.copyfile(targets[surf / f'{hemi}.white'], targets[surf / f'{hemi}.{kind}'])
+        atomic_json(targets[prepared_qc], checks)
+
+    preparation.run('native_surfaces', files + [Path(__file__), ROOT / 'postprocessing/geometry.py',
+                    ROOT / 'utils/surface_io.py', ROOT / 'utils/stages.py'], prepared_outputs, prepare, settings=signature)
+    prepared = json.loads(prepared_qc.read_text())
+    fallback_pairs = ({hemi: load_pair(surfaces[hemi]['white'], surfaces[hemi]['pial']) for hemi in hemis}
+                      if not modern_metrics else {})
+
     def process_hemi(hemi):
-        white, pial = pairs[hemi]
-        hemi_qc = {}
-        for name, mesh in (('white', white), ('pial', pial)):
+        hemi_qc = prepared[hemi]
+        for name in ('white', 'pial'):
             path = surf / f'{hemi}.{name}'
-            hemi_qc[name] = write_surface(mesh, image, path)
             area_path = surf / (f'{hemi}.area' + ('.pial' if name == 'pial' else ''))
             if modern_metrics:
-                execute(f'{hemi}.{name}.area', ['mris_place_surface', '--area-map', path, area_path], [area_path])
+                execute(f'{hemi}.{name}.area', ['mris_place_surface', '--area-map', path, area_path], [area_path], [path])
             else:
-                nib.freesurfer.write_morph_data(str(area_path), vertex_area(mesh.vertices, mesh.faces), fnum=len(mesh.faces))
+                mesh = fallback_pairs[hemi][0 if name == 'white' else 1]
+                preparation.run(f'{hemi}.{name}.area', [surfaces[hemi][name], ROOT / 'postprocessing/geometry.py'],
+                                [area_path], lambda staged: nib.freesurfer.write_morph_data(str(staged[0]),
+                                vertex_area(mesh.vertices, mesh.faces), fnum=len(mesh.faces)))
             execute(f'{hemi}.{name}.curvature', ['mris_curvature', '-w', path],
-                    [surf / f'{hemi}.{name}.H', surf / f'{hemi}.{name}.K'])
-        shutil.copyfile(surf / f'{hemi}.white', surf / f'{hemi}.orig')
-        shutil.copyfile(surf / f'{hemi}.white', surf / f'{hemi}.smoothwm')
+                    [surf / f'{hemi}.{name}.H', surf / f'{hemi}.{name}.K'], [path])
         if modern_metrics:
             for name in ('white', 'pial'):
                 output = surf / (f'{hemi}.curv' + ('.pial' if name == 'pial' else ''))
                 execute(f'{hemi}.{name}.curv', ['mris_place_surface', '--curv-map', surf / f'{hemi}.{name}',
-                        '2', '10', output], [output])
+                        '2', '10', output], [output], [surf / f'{hemi}.{name}'])
         else:
             shutil.copyfile(surf / f'{hemi}.white.H', surf / f'{hemi}.curv')
             shutil.copyfile(surf / f'{hemi}.pial.H', surf / f'{hemi}.curv.pial')
         execute(f'{hemi}.inflate', ['mris_inflate', surf / f'{hemi}.white', surf / f'{hemi}.inflated'],
-                [surf / f'{hemi}.inflated', surf / f'{hemi}.sulc'])
+                [surf / f'{hemi}.inflated', surf / f'{hemi}.sulc'], [surf / f'{hemi}.white'])
         execute(f'{hemi}.inflated.curvature', ['mris_curvature', '-w', surf / f'{hemi}.inflated'],
-                [surf / f'{hemi}.inflated.H', surf / f'{hemi}.inflated.K'])
+                [surf / f'{hemi}.inflated.H', surf / f'{hemi}.inflated.K'], [surf / f'{hemi}.inflated'])
         execute(f'{hemi}.sphere', ['mris_sphere', surf / f'{hemi}.inflated', surf / f'{hemi}.sphere'],
-                [surf / f'{hemi}.sphere'])
+                [surf / f'{hemi}.sphere'], [surf / f'{hemi}.inflated'])
         execute(f'{hemi}.register', ['mris_register', '-curv', surf / f'{hemi}.sphere',
                 home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif', surf / f'{hemi}.sphere.reg'],
-                [surf / f'{hemi}.sphere.reg'])
+                [surf / f'{hemi}.sphere.reg'], [surf / f'{hemi}.sphere', surf / f'{hemi}.sulc',
+                surf / f'{hemi}.smoothwm', surf / f'{hemi}.inflated.H', surf / f'{hemi}.curv',
+                home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif'])
         if modern_metrics:
             thickness_command = ['mris_place_surface', '--thickness', surf / f'{hemi}.white',
                                  surf / f'{hemi}.pial', '20', '5', surf / f'{hemi}.thickness']
         else:
             thickness_command = ['mris_thickness', args.subject, hemi, 'thickness']
-        execute(f'{hemi}.thickness', thickness_command, [surf / f'{hemi}.thickness'])
+        execute(f'{hemi}.thickness', thickness_command, [surf / f'{hemi}.thickness'],
+                [surf / f'{hemi}.white', surf / f'{hemi}.pial'])
         execute(f'{hemi}.cortex', ['mri_label2label', '--srclabel', fsaverage / 'label' / f'{hemi}.cortex.label',
                 '--srcsubject', 'fsaverage', '--trgsubject', args.subject, '--trglabel', label / f'{hemi}.cortex.label',
-                '--regmethod', 'surface', '--hemi', hemi], [label / f'{hemi}.cortex.label'])
+                '--regmethod', 'surface', '--hemi', hemi], [label / f'{hemi}.cortex.label'],
+                [fsaverage / 'label' / f'{hemi}.cortex.label', fsaverage / 'surf' / f'{hemi}.sphere.reg',
+                 surf / f'{hemi}.sphere.reg', surf / f'{hemi}.white'])
         for atlas in atlases:
             annot = label / f'{hemi}.{atlas}.annot'
             execute(f'{hemi}.{atlas}.annot', ['mri_surf2surf', '--srcsubject', 'fsaverage', '--trgsubject', args.subject,
-                    '--hemi', hemi, '--sval-annot', fsaverage / 'label' / f'{hemi}.{atlas}.annot', '--tval', annot], [annot])
+                    '--hemi', hemi, '--sval-annot', fsaverage / 'label' / f'{hemi}.{atlas}.annot', '--tval', annot], [annot],
+                    [fsaverage / 'label' / f'{hemi}.{atlas}.annot', fsaverage / 'surf' / f'{hemi}.sphere.reg',
+                     surf / f'{hemi}.sphere.reg'])
             regions = label / f'{hemi}.{atlas}'
             regions.mkdir(exist_ok=True)
             indices, _, names = nib.freesurfer.read_annot(str(annot))
@@ -216,16 +277,19 @@ def run(args):
             if not expected:
                 raise ValueError(f'{hemi}.{atlas} annotation contains no cortical regions')
             execute(f'{hemi}.{atlas}.labels', ['mri_annotation2label', '--subject', args.subject, '--hemi', hemi,
-                    '--annotation', atlas, '--outdir', regions], expected)
+                    '--annotation', atlas, '--outdir', regions], expected, [annot, surf / f'{hemi}.white'])
             stats = subject_dir / 'stats' / f'{hemi}.{atlas}.stats'
             execute(f'{hemi}.{atlas}.stats', [sys.executable, Path(__file__).resolve().with_name('stats.py'),
-                    '--subject-dir', subject_dir, '--hemi', hemi, '--atlas', atlas], [stats])
+                    '--subject-dir', subject_dir, '--hemi', hemi, '--atlas', atlas], [stats],
+                    [annot, label / f'{hemi}.cortex.label', surf / f'{hemi}.area', surf / f'{hemi}.area.pial',
+                     surf / f'{hemi}.thickness', surf / f'{hemi}.curv', surf / f'{hemi}.white.K'])
         for metric in ('thickness', 'curv', 'sulc', 'area.pial'):
             output = subject_dir / 'fsaverage' / f'{hemi}.{metric}.mgh'
             execute(f'{hemi}.{metric}.fsaverage', ['mri_surf2surf', '--srcsubject', args.subject, '--trgsubject',
-                    'fsaverage', '--hemi', hemi, '--sval', surf / f'{hemi}.{metric}', '--tval', output], [output])
+                    'fsaverage', '--hemi', hemi, '--sval', surf / f'{hemi}.{metric}', '--tval', output], [output],
+                    [surf / f'{hemi}.{metric}', surf / f'{hemi}.sphere.reg', fsaverage / 'surf' / f'{hemi}.sphere.reg'])
         thickness = nib.freesurfer.read_morph_data(str(surf / f'{hemi}.thickness'))
-        if len(thickness) != len(white.vertices) or not np.isfinite(thickness).all():
+        if len(thickness) != hemi_qc['white']['vertices'] or not np.isfinite(thickness).all():
             raise ValueError('Invalid thickness output')
         qc['hemispheres'][hemi] = hemi_qc
     with ThreadPoolExecutor(max_workers=workers) as executor:

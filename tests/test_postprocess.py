@@ -164,6 +164,7 @@ class PostprocessTests(unittest.TestCase):
             (home / 'average').mkdir()
             labels = home / 'subjects/fsaverage/label'
             labels.mkdir(parents=True)
+            (home / 'subjects/fsaverage/surf').mkdir()
             (home / 'license.txt').write_text('fixture')
             for binary in ('mris_curvature', 'mris_inflate', 'mris_sphere', 'mris_register', 'mris_thickness',
                            'mri_label2label', 'mri_surf2surf', 'mri_annotation2label', 'mris_anatomical_stats',
@@ -174,6 +175,7 @@ class PostprocessTests(unittest.TestCase):
             native.mkdir(parents=True)
             vertices_count = 42
             for hemi in ('lh', 'rh'):
+                (home / 'subjects/fsaverage/surf' / f'{hemi}.sphere.reg').write_text('fixture')
                 (labels / f'{hemi}.cortex.label').write_text('fixture')
                 (home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif').write_text('fixture')
                 nib.freesurfer.write_annot(str(labels / f'{hemi}.aparc.annot'),
@@ -190,6 +192,7 @@ class PostprocessTests(unittest.TestCase):
                                '--output-root', str(root / 'output'), '--freesurfer-home', str(home), '--atlases', 'aparc'])
             lock = Lock()
             activity = [0, 0]
+            thickness_value = [1.]
 
             def mock_command(command, **kwargs):
                 with lock:
@@ -202,7 +205,8 @@ class PostprocessTests(unittest.TestCase):
                     for suffix in ('.H', '.K'):
                         nib.freesurfer.write_morph_data(command[-1] + suffix, np.ones(vertices_count))
                 elif tool == 'mris_place_surface':
-                    nib.freesurfer.write_morph_data(command[-1], np.ones(vertices_count))
+                    value = thickness_value[0] if command[-1].endswith('.thickness') else 1.
+                    nib.freesurfer.write_morph_data(command[-1], np.full(vertices_count, value))
                 elif tool in ('mris_inflate', 'mris_sphere', 'mris_register'):
                     shutil.copyfile(command[-2] if tool != 'mris_register' else command[-3], command[-1])
                     if tool == 'mris_inflate':
@@ -225,7 +229,7 @@ class PostprocessTests(unittest.TestCase):
                     self.assertEqual(rows[0][0], 'roi')
                     self.assertEqual(rows[0][1], 42)
                     self.assertEqual(rows[0][2], 42.)
-                    self.assertEqual(rows[0][4], 1.)
+                    self.assertEqual(rows[0][4], thickness_value[0])
                 else:
                     self.fail(tool)
                 with lock:
@@ -236,13 +240,26 @@ class PostprocessTests(unittest.TestCase):
                     run_postprocess(args)
                     self.assertEqual(activity[1], 2)
                     self.assertGreater(process.call_count, 20)
+                    unchanged = {path: path.stat().st_mtime_ns for subdir in ('mri', 'surf')
+                                 for path in (root / 'output/x' / subdir).iterdir() if path.is_file()}
                     process.reset_mock()
                     run_postprocess(args)
                     process.assert_not_called()
+                    self.assertEqual(unchanged, {path: path.stat().st_mtime_ns for path in unchanged})
+                    thickness_path = root / 'output/x/surf/lh.thickness'
+                    thickness_path.write_text('corrupted')
+                    with patch('postprocessing.pipeline.subprocess.run'):
+                        with self.assertRaisesRegex(RuntimeError, 'did not refresh'):
+                            run_postprocess(args)
                     # Missing outputs must be regenerated, not treated as completed.
-                    (root / 'output/x/surf/lh.thickness').unlink()
+                    thickness_path.unlink()
                     run_postprocess(args)
                     self.assertEqual(process.call_count, 1)
+                    process.reset_mock()
+                    thickness_value[0] = 2.
+                    thickness_path.unlink()
+                    run_postprocess(args)
+                    self.assertEqual(process.call_count, 3)
                     explicit = parse_args(['--subject', 'x', '--output-root', str(root / 'surface-only'),
                                            '--freesurfer-home', str(home), '--atlases', 'aparc'] +
                                           [value for hemi in ('lh', 'rh') for kind, source in (('white', 'wm'), ('pial', 'pial'))

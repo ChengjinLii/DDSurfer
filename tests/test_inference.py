@@ -39,7 +39,30 @@ class InferenceTests(unittest.TestCase):
         command=pipeline.build_prediction_command(ROOT/'DDSurfer_predict.py',args,'both')
         self.assertEqual(Path(command[1]).name,'DDSurfer_predict.py')
         self.assertEqual(command[command.index('--surf_hemi')+1],'both')
-        self.assertIn(str(ROOT/'ckpts'),command)
+        self.assertIn(str(ROOT/'weights'),command)
+
+    def test_prediction_and_pipeline_share_default_weights_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/'x').mkdir()
+            with patch('inference.predict.SurfacePredictor') as predictor:
+                main('both',['--input_root',temp,'--subjects','x','--device','cpu'])
+        expected=pipeline.parse_args(['--subject','x']).checkpoint_root
+        self.assertEqual(expected,ROOT/'weights')
+        self.assertEqual(len(predictor.call_args_list),2)
+        for call in predictor.call_args_list:
+            self.assertEqual(call.args[0].checkpoint_root,expected)
+
+    def test_custom_checkpoint_root_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/'x').mkdir()
+            folder=Path(temp)/'custom_weights'
+            args=pipeline.parse_args(['--subject','x','--checkpoint-root',str(folder)])
+            command=pipeline.build_prediction_command(ROOT/'DDSurfer_predict.py',args,'both')
+            self.assertEqual(command[command.index('--checkpoint_root')+1],str(folder))
+            with patch('inference.predict.SurfacePredictor') as predictor:
+                main('left',['--input_root',temp,'--subjects','x','--device','cpu',
+                             '--checkpoint_root',str(folder)])
+            self.assertEqual(predictor.call_args.args[0].checkpoint_root,folder)
 
     def test_pipeline_calls_prediction_once_for_both_sides(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -107,7 +130,7 @@ class InferenceTests(unittest.TestCase):
             np.testing.assert_allclose(mesh.vertices,predictor.geometry.crop_to_ras(pial),atol=1e-5)
 
     def test_deployment_checksums_and_tensor_only_weights(self):
-        folder=ROOT/'ckpts';config=json.loads((folder/'manifest.json').read_text())
+        folder=ROOT/'weights';config=json.loads((folder/'manifest.json').read_text())
         checksums=load_checksums(folder)
         self.assertEqual(set(config),{'architecture','geometry','precision','postprocess_iters',
                                       'checkpoint_files','templates'})
@@ -125,15 +148,15 @@ class InferenceTests(unittest.TestCase):
                 del state,model
 
     def test_reject_corrupt_checkpoint(self):
-        folder=ROOT/'ckpts';config=json.loads((folder/'manifest.json').read_text())
+        folder=ROOT/'weights';config=json.loads((folder/'manifest.json').read_text())
         with self.assertRaisesRegex(ValueError,'checksum mismatch'):
             load_model(folder/'ddsurfer_lh_wm.pt','0'*64,config['architecture'],torch.device('cpu'))
 
     def test_checkpoint_root_is_flat(self):
         args=pipeline.parse_args(['--subject','100610'])
-        self.assertEqual(args.checkpoint_root,ROOT/'ckpts')
-        self.assertFalse((ROOT/'ckpts/hcp').exists())
-        self.assertFalse(any(p.is_dir() for p in (ROOT/'ckpts').iterdir()))
+        self.assertEqual(args.checkpoint_root,ROOT/'weights')
+        self.assertFalse((ROOT/'weights/hcp').exists())
+        self.assertFalse(any(p.is_dir() for p in (ROOT/'weights').iterdir()))
         self.assertFalse(any(p.is_dir() for p in (ROOT/'template').iterdir()))
         self.assertFalse(list((ROOT/'template').glob('*.stl')))
         self.assertEqual(len(list((ROOT/'template').glob('*.obj'))), 2)

@@ -18,14 +18,15 @@ import numpy as np
 LOGGER = logging.getLogger(__name__)
 
 
-def skull_strip(volume_path: Path, mask_path: Path, output_path: Path) -> None:
+def skull_strip(volume_path: Path, mask_path: Path, output_path: Path, *, mask_data=None) -> None:
     """Apply a binary mask to the input volume."""
     LOGGER.debug("Loading volume from %s", volume_path)
     volume_img = nib.load(str(volume_path))
     volume_data = volume_img.get_fdata(dtype=np.float32)
 
     LOGGER.debug("Loading mask from %s", mask_path)
-    mask_data = nib.load(str(mask_path)).get_fdata().astype(bool)
+    if mask_data is None:
+        mask_data = nib.load(str(mask_path)).get_fdata().astype(bool)
 
     if mask_data.shape != volume_data.shape:
         raise ValueError(

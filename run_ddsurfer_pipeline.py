@@ -61,7 +61,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument('--precision', choices=('auto', 'bf16', 'fp32'), default='auto',
                         help='Inference precision: auto, bf16, or fp32.')
-    parser.add_argument('--checkpoint-root', type=Path, default=PROJECT_ROOT / 'ckpts')
+    parser.add_argument('--checkpoint-root', type=Path, default=PROJECT_ROOT / 'weights')
     parser.add_argument('--template-dir', type=Path, default=PROJECT_ROOT / 'template')
     parser.add_argument('--save-debug', action='store_true', help='Save crop-coordinate predictions in cache; use --keep-cache to retain.')
     parser.add_argument('--post-process', '--freesurfer', dest='freesurfer', action='store_true',
@@ -73,6 +73,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--postprocess-atlases', default='aparc,aparc.a2009s')
     parser.add_argument('--brain-source', type=Path, help='Native-space MRI; defaults to the native b0 from DTI estimation.')
     parser.add_argument('--postprocess-threads', type=int, default=4)
+    parser.add_argument('--preprocess-jobs', type=int, default=1,
+                        help='Concurrent independent DTI stages; registration settings stay unchanged.')
     parser.add_argument('--postprocess-serial', action='store_true', help='Process hemispheres sequentially.')
     parser.add_argument(
         "--skip-preprocessing",
@@ -110,6 +112,8 @@ def build_preprocessing_command(args: argparse.Namespace) -> List[str]:
         str(cache_directory(args) / 'dti'),
         "--output-root",
         str(cache_directory(args) / 'volumes'),
+        '--minimal',
+        '--jobs', str(args.preprocess_jobs),
         '--log-dir', str(subject_directory(args) / 'logs/preprocessing'),
     ]
     for name in INPUT_NAMES:
@@ -219,6 +223,8 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parse_args(argv)
     if Path(args.subject).name != args.subject or args.subject in ('', '.', '..', 'fsaverage'):
         raise ValueError('Invalid subject identifier')
+    if args.preprocess_jobs < 1:
+        raise ValueError('--preprocess-jobs must be positive')
     if subject_directory(args).is_symlink():
         raise ValueError('Refusing to write through a symlinked subject directory')
     if cache_directory(args).is_symlink():

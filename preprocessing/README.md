@@ -4,6 +4,24 @@ This directory contains the complete volume-preprocessing workflow.
 `run.sh` calls `dti.sh` to estimate DTI and register scalar maps, then masks,
 resamples and z-score normalizes them for surface inference.
 
+The main pipeline selects `--minimal`: FA, MD, and the three eigenvalue maps.
+Unused Trace and DTI-cache `NormMasked` maps are not computed in this mode.
+Standalone `run.sh` and `dti.sh` retain the complete scalar outputs by default.
+Use `--minimal` explicitly for inference-only preprocessing.
+
+Independent DTI scalar and resampling commands can run concurrently with
+`--jobs 2` (default: 1), or `--preprocess-jobs 2` on the main pipeline.
+Tensor estimation and atlas registration remain ordered, with unchanged
+commands, interpolation and thread settings. Limit concurrency to available
+memory and CPU resources.
+
+Stages record input/output checksums and publish complete results atomically.
+Detached NRRD data files are checked together with their headers. The final
+normalized images are separate from unnormalized intermediates, so a resumed
+run does not normalize an already-normalized image again. Masks are shared
+within one Python process; both resampling steps and their file precision are
+retained. Intermediate files and receipts stay inside the disposable cache.
+
 The image helpers `mask.py`, `resample.py`, and `normalize.py` are kept in this
 directory. `normalize_dti.py` handles DTI-cache normalization separately;
 `normalize.py` performs the final per-volume z-score normalization used by

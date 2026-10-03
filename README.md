@@ -1,10 +1,17 @@
 ## DDSurfer Release
 
+[![Python](https://img.shields.io/badge/Language-Python-3776AB?logo=python&logoColor=white)](#key-dependencies)
+[![PyTorch](https://img.shields.io/badge/Framework-PyTorch-EE4C2C?logo=pytorch&logoColor=white)](#key-dependencies)
+[![NumPy](https://img.shields.io/badge/Numerics-NumPy-013243?logo=numpy&logoColor=white)](#key-dependencies)
+[![SimpleITK](https://img.shields.io/badge/Imaging-SimpleITK-0098A9)](#key-dependencies)
+[![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
+[![FreeSurfer](https://img.shields.io/badge/Postprocessing-FreeSurfer%20%28optional%29-6A737D)](#optional-postprocessing)
+
 DDSurfer reconstructs white and pial cortical surfaces from diffusion MRI inputs.
 This release bundles preprocessing utilities, dual-stream TANet inference, and
 postprocessing tools in a single repository.
 
-Model weights are stored directly in `ckpts/` and loaded automatically.
+Model weights are stored directly in `weights/` and loaded automatically.
 
 ---
 
@@ -80,6 +87,8 @@ python3 run_ddsurfer_pipeline.py --subject <subID> \
 The workflow is DWI -> DTI features -> MNI inference -> native surfaces.
 Volume preprocessing is provided by `preprocessing/run.sh`, including the
 DTI-estimation stage in `preprocessing/dti.sh`.
+The main pipeline computes only the five inference channels. Use
+`--preprocess-jobs 2` to run independent DTI stages concurrently (default: 1).
 Only native surfaces are retained. DTI maps, resampled volumes and MNI meshes
 are intermediate cache files and are removed after success by default.
 Use `--keep-cache` to retain them; failed runs retain the cache for diagnosis.
@@ -157,7 +166,7 @@ Without an MRI, the reference under `mri/` contains geometry only, not acquired
 or synthesized anatomical intensities. No segmentation-derived tissue volumes
 are reported. See [postprocessing usage](postprocessing/README.md) for details.
 
-Verify weights with `cd ckpts && sha256sum -c SHA256SUMS`.
+Verify weights with `cd weights && sha256sum -c SHA256SUMS`.
 
 ---
 

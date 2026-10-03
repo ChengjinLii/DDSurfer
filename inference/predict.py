@@ -170,7 +170,7 @@ def main(default_hemisphere, argv=None):
     parser.add_argument('--predict_mode', choices=('wm','all'), default='all')
     parser.add_argument('--input_root', type=Path, default=ROOT/'outputs/.cache/volumes')
     parser.add_argument('--output_dir', type=Path, default=ROOT/'outputs/.cache/predictions')
-    parser.add_argument('--checkpoint_root', type=Path, default=ROOT/'ckpts')
+    parser.add_argument('--checkpoint_root', type=Path, default=ROOT/'weights')
     parser.add_argument('--template_dir', type=Path, default=ROOT/'template')
     parser.add_argument('--subjects', nargs='+')
     parser.add_argument('--step_size', type=float)

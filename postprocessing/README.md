@@ -65,6 +65,11 @@ Commands and coordinate checks are saved under `<subID>/logs/`. Failed commands
 stop the pipeline. Re-running with the same inputs resumes completed stages;
 changed inputs or settings require a new output directory.
 
+Native reference and surface conversion results are reused after checksum
+validation. Stage receipts include upstream inputs as well as outputs, so
+changed intermediate results invalidate dependent stages. Hemisphere
+parallelism and FreeSurfer command settings are unchanged.
+
 The implementation follows the standalone curvature, area and thickness
 commands in [FastSurfer recon-surf](https://github.com/Deep-MI/FastSurfer/blob/dev/recon_surf/recon-surf.sh)
 when `mris_place_surface` is available, with a fallback for older FreeSurfer

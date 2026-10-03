@@ -90,6 +90,19 @@ def zscore_normalize_data(data, mask=None, epsilon=1e-6, zero_out_background=Tru
     else:
         return zscored_channels[0]
 
+def normalize_volume(input_file, output_file, *, mask=None, epsilon=1e-6, zero_out_background=True):
+    img_nifti = nib.load(str(input_file))
+    img_data = img_nifti.get_fdata(dtype=np.float32)
+    zscored_data = zscore_normalize_data(img_data, mask=mask, epsilon=epsilon,
+                                       zero_out_background=zero_out_background)
+    output_nifti = nib.Nifti1Image(zscored_data.astype(np.float32), img_nifti.affine, img_nifti.header)
+    output_nifti.header.set_data_dtype(np.float32)
+    output_dir = os.path.dirname(str(output_file))
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    nib.save(output_nifti, str(output_file))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Perform Z-scoring on a NIfTI image.")
     parser.add_argument("-i", "--input_file", type=str, required=True,

@@ -33,6 +33,8 @@ DDSURFER_TESTDATA_DIR=${DDSURFER_TESTDATA_DIR:-"$PROJECT_ROOT/outputs/.cache/dti
 NEW_OUTPUT_BASE_DIR=${NEW_OUTPUT_BASE_DIR:-"$PROJECT_ROOT/outputs/.cache/volumes"}
 LOG_DIR_BASE=${LOG_DIR_BASE:-"$PROJECT_ROOT/logs/preprocessing"}
 SKIP_DTI_PROCESSING=${SKIP_DTI_PROCESSING:-0}
+PREPROCESS_JOBS=${PREPROCESS_JOBS:-1}
+MINIMAL=0
 
 DTI_SLICER_PATH=${DTI_SLICER_PATH:-}
 DTI_REFERENCE_IMAGE=${DTI_REFERENCE_IMAGE:-}
@@ -78,6 +80,8 @@ Directory overrides:
       --output-root <path>   Directory where resampled outputs are written
       --log-dir <path>       Directory for preprocessing logs
       --skip-dti-processing  Skip DTI estimation and require existing inputs
+      --minimal              Only prepare the five inference scalar channels
+      --jobs <N>             Concurrent independent DTI stages (default: 1)
 
 Misc:
   -h, --help                 Show this message and exit
@@ -170,6 +174,15 @@ parse_args() {
         LOG_DIR_BASE="$2"
         shift 2
         ;;
+      --minimal)
+        MINIMAL=1
+        shift
+        ;;
+      --jobs)
+        [[ $# -ge 2 ]] || die "Option $1 requires an argument"
+        PREPROCESS_JOBS=$2
+        shift 2
+        ;;
       --skip-dti-processing)
         SKIP_DTI_PROCESSING=1
         shift
@@ -219,41 +232,6 @@ check_tooling() {
   command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python interpreter not found: $PYTHON_BIN"
 }
 
-run_resample() {
-  local source_path=$1
-  local output_path=$2
-  "$PYTHON_BIN" "$PYTHON_RESAMPLE_SCRIPT" \
-    --source_image_path "$source_path" \
-    --target_size "${RESAMPLE_TARGET_SIZE[@]}" \
-    --target_spacing "${RESAMPLE_TARGET_SPACING[@]}" \
-    --target_origin "${RESAMPLE_TARGET_ORIGIN[@]}" \
-    --target_direction "${RESAMPLE_TARGET_DIRECTION[@]}" \
-    --output_file_path "$output_path" \
-    >>"$log_file" 2>&1
-}
-
-###############################################################################
-# Core processing routines
-###############################################################################
-
-declare -a _DTI_PARAMS_TO_MASK=(
-  "FractionalAnisotropy"
-  "MinEigenvalue"
-  "MidEigenvalue"
-  "MaxEigenvalue"
-  "Trace"
-  "MeanDiffusivity"
-)
-
-declare -a _FILES_TO_RESAMPLE=(
-  "testdata:dti-MinEigenvalue-Reg-masked:MinEigenvalue"
-  "testdata:dti-MidEigenvalue-Reg-masked:MidEigenvalue"
-  "testdata:dti-Trace-Reg-masked:Trace"
-  "testdata:dti-FractionalAnisotropy-Reg-masked:FA"
-  "testdata:dti-MaxEigenvalue-Reg-masked:MaxEigenvalue"
-  "testdata:dti-MeanDiffusivity-Reg-masked:MD"
-)
-
 subject_has_registered_dti_inputs() {
   local subject_id=$1
   local subject_input_dir=$2
@@ -262,12 +240,12 @@ subject_has_registered_dti_inputs() {
     "${subject_input_dir}/${subject_id}-dti-MinEigenvalue-Reg.nii.gz"
     "${subject_input_dir}/${subject_id}-dti-MidEigenvalue-Reg.nii.gz"
     "${subject_input_dir}/${subject_id}-dti-MaxEigenvalue-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-Trace-Reg.nii.gz"
     "${subject_input_dir}/${subject_id}-dti-MeanDiffusivity-Reg.nii.gz"
     "${subject_input_dir}/${subject_id}-mask-Reg.nii.gz"
     "${subject_input_dir}/${subject_id}-b0ToAtlasT2.tfm"
   )
 
+  [[ "$MINIMAL" -eq 1 ]] || expected_inputs+=("${subject_input_dir}/${subject_id}-dti-Trace-Reg.nii.gz")
   local path
   for path in "${expected_inputs[@]}"; do
     file_is_usable "$path" || return 1
@@ -294,7 +272,9 @@ run_dti_processing() {
     --input-root "$DWI_RAW_INPUT_ROOT"
     --output-root "$DDSURFER_TESTDATA_DIR"
     --python-bin "$PYTHON_BIN"
+    --jobs "$PREPROCESS_JOBS"
   )
+  [[ "$MINIMAL" -eq 0 ]] || command+=(--minimal)
 
   if [[ -n "$DWI_INPUT$BVAL_INPUT$BVEC_INPUT$MASK_INPUT" ]]; then
     command+=(--dwi "$DWI_INPUT" --bval "$BVAL_INPUT" --bvec "$BVEC_INPUT" --mask "$MASK_INPUT")
@@ -352,107 +332,13 @@ process_subject() {
     return 1
   fi
 
-  log "Step 1 | Input validation"
-  local -a required_inputs=(
-    "${subject_input_dir}/${subject_id}-dti-FractionalAnisotropy-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-MinEigenvalue-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-MidEigenvalue-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-MaxEigenvalue-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-Trace-Reg.nii.gz"
-    "${subject_input_dir}/${subject_id}-dti-MeanDiffusivity-Reg.nii.gz"
-    "$subject_mask"
-    "${subject_input_dir}/${subject_id}-b0ToAtlasT2.tfm"
-  )
-
-  local missing_required=0
-  local path
-  for path in "${required_inputs[@]}"; do
-    if ! file_is_usable "$path"; then
-      log "  Missing required input: $path"
-      missing_required=1
-    fi
-  done
-  if [[ $missing_required -ne 0 ]]; then
-    log "  Skipping subject ${subject_id} due to missing inputs."
-    return 1
-  fi
-
-  mkdir -p "$subject_output_dir"
-  cp -f "${subject_input_dir}/${subject_id}-b0ToAtlasT2.tfm" "${subject_output_dir}/${subject_id}-b0ToAtlasT2.tfm"
-
-  log "Step 2 | Skull stripping"
-  local param
-  for param in "${_DTI_PARAMS_TO_MASK[@]}"; do
-    local input_volume="${subject_input_dir}/${subject_id}-dti-${param}-Reg.nii.gz"
-    local masked_volume="${subject_input_dir}/${subject_id}-dti-${param}-Reg-masked.nii.gz"
-    if file_is_usable "$masked_volume"; then
-      log "  [skip] ${param} already skull stripped."
-      continue
-    fi
-    log "  [run] Skull stripping ${param}"
-    "$PYTHON_BIN" "$PYTHON_SKULL_STRIPPING_SCRIPT" \
-      --input_path "$input_volume" \
-      --mask_path "$subject_mask" \
-      --output_path "$masked_volume" \
-      >>"$log_file" 2>&1
-  done
-
-  log "Step 3 | Resampling to template space"
-  local resampled_mask="${subject_output_dir}/${subject_id}-brainmask_resampled.nii.gz"
-  if file_is_usable "$resampled_mask"; then
-    log "  [skip] Resampled brain mask already available."
-  else
-    log "  [run] Resampling brain mask"
-    run_resample "$subject_mask" "$resampled_mask"
-  fi
-
-  local descriptor
-  for descriptor in "${_FILES_TO_RESAMPLE[@]}"; do
-    IFS=':' read -r source_scope source_stem target_suffix <<<"$descriptor"
-    local source_path=""
-    case "$source_scope" in
-      testdata) source_path="${subject_input_dir}/${subject_id}-${source_stem}.nii.gz" ;;
-      *) log "  [warn] Unknown source scope '${source_scope}' for descriptor '${descriptor}'"; continue ;;
-    esac
-
-    if [[ ! -f "$source_path" ]]; then
-      log "  [warn] Source missing, skipping resample: $(basename "$source_path")"
-      continue
-    fi
-
-    local target_path="${subject_output_dir}/${subject_id}-${target_suffix}.nii.gz"
-    if file_is_usable "$target_path"; then
-      log "  [skip] Resampled volume already exists: $(basename "$target_path")"
-      continue
-    fi
-
-    log "  [run] Resampling $(basename "$source_path") -> $(basename "$target_path")"
-    run_resample "$source_path" "$target_path"
-  done
-
-  log "Step 4 | Z-score normalisation"
-  local zscore_args=()
-  if [[ -f "$resampled_mask" ]]; then
-    zscore_args=(--mask_file "$resampled_mask")
-  else
-    log "  [warn] Resampled mask not found. Z-scoring will proceed without an explicit mask."
-  fi
-
-  for descriptor in "${_FILES_TO_RESAMPLE[@]}"; do
-    IFS=':' read -r _ source_stem target_suffix <<<"$descriptor"
-    local volume="${subject_output_dir}/${subject_id}-${target_suffix}.nii.gz"
-    if [[ ! -f "$volume" ]]; then
-      log "  [warn] Skipping Z-score, volume not found: $(basename "$volume")"
-      continue
-    fi
-
-    log "  [run] Z-score normalisation (in-place): $(basename "$volume")"
-    "$PYTHON_BIN" "$PYTHON_ZSCORE_SCRIPT" \
-      --input_file "$volume" \
-      --output_file "$volume" \
-      "${zscore_args[@]}" \
-      >>"$log_file" 2>&1
-  done
+  log "Step 1 | Masking, fixed-grid resampling and z-score normalisation"
+  local -a volume_command=("$PYTHON_BIN" "$SCRIPT_DIR/volumes.py" --subject "$subject_id"
+    --input-dir "$subject_input_dir" --output-dir "$subject_output_dir"
+    --mask-script "$PYTHON_SKULL_STRIPPING_SCRIPT" --resample-script "$PYTHON_RESAMPLE_SCRIPT"
+    --normalize-script "$PYTHON_ZSCORE_SCRIPT")
+  [[ "$MINIMAL" -eq 0 ]] || volume_command+=(--minimal)
+  "${volume_command[@]}" >>"$log_file" 2>&1
 
   log "Completed subject ${subject_id}"
 }
@@ -462,6 +348,7 @@ process_subject() {
 ###############################################################################
 
 parse_args "$@"
+[[ "$PREPROCESS_JOBS" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a positive integer"
 initialise_logging
 check_tooling
 ensure_subject_list
