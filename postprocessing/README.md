@@ -1,4 +1,9 @@
-## Surface Post-processing
+## Surface Postprocessing
+
+Python dependencies are shared with the rest of DDSurfer and defined in the
+repository-root [`environment.yml`](../environment.yml) and
+[`requirements.txt`](../requirements.txt). See the root
+[installation instructions](../README.md#key-dependencies).
 
 This is a plug-and-play surface-only pipeline. Configure FreeSurfer,
 `FREESURFER_HOME`, `FS_LICENSE`, and the installed `fsaverage`. The only
@@ -6,7 +11,7 @@ required data inputs are four native white/pial cortical surfaces, obtained
 by DDSurfer or another reconstruction method:
 
 ```bash
-bash postprocess/run.sh --subject <subID> \
+bash postprocessing/run.sh --subject <subID> \
   --lh-white ./outputs/<subID>/ddsurfer/lh.white.obj --lh-pial ./outputs/<subID>/ddsurfer/lh.pial.obj \
   --rh-white ./outputs/<subID>/ddsurfer/rh.white.obj --rh-pial ./outputs/<subID>/ddsurfer/rh.pial.obj \
   --output-root ./outputs

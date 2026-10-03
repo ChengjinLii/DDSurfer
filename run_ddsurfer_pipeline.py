@@ -168,7 +168,7 @@ def native_reference(args: argparse.Namespace) -> Path:
 
 
 def build_freesurfer_command(args: argparse.Namespace) -> List[str]:
-    command = [sys.executable, str(PROJECT_ROOT / 'postprocess/pipeline.py'),
+    command = [sys.executable, str(PROJECT_ROOT / 'postprocessing/pipeline.py'),
                '--subject', args.subject,
                '--brain-source', str(native_reference(args)),
                '--output-root', str(args.output_root),

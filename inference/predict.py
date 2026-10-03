@@ -14,7 +14,7 @@ import torch
 
 from inference.coordinates import Geometry, MODALITIES, atomic_json, export_crop_mesh, sha256_file
 from inference.meshes import load_mesh
-from net.ddsurfer import TANet
+from model.ddsurfer import TANet
 from utils.mesh import taubin_smooth
 
 ROOT = Path(__file__).resolve().parents[1]

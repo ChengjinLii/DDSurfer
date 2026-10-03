@@ -2,9 +2,11 @@
 
 DDSurfer reconstructs white and pial cortical surfaces from diffusion MRI inputs.
 This release bundles preprocessing utilities, dual-stream TANet inference, and
-post-processing tools in a single repository.
+postprocessing tools in a single repository.
 
 Model weights are stored directly in `ckpts/` and loaded automatically.
+
+---
 
 ## Publication
 
@@ -34,7 +36,9 @@ If you use DDSurfer in your research, please cite:
 }
 ```
 
-### Inputs
+---
+
+## Inputs
 
 The pipeline accepts four files, as in
 [DDParcel](https://github.com/zhangfanmark/DDParcel/blob/main/process.sh):
@@ -53,7 +57,9 @@ DDParcel-style subject filenames and the HCP `T1w/Diffusion/` layout are also
 accepted. Motion/eddy/susceptibility correction and the corresponding gradient
 updates must already be done.
 
-### Run DDSurfer
+---
+
+## Run DDSurfer
 
 From the repository root:
 
@@ -84,7 +90,9 @@ Use `--raw-input-root` and `--output-root` to change these roots.
 Use `--device cpu` for CPU inference or `--device cuda:0` to select a GPU.
 CUDA `--precision auto` selects BF16; CPU uses FP32.
 
-### Outputs
+---
+
+## Outputs
 
 ```text
 outputs/<subID>/
@@ -99,9 +107,11 @@ outputs/<subID>/
 Surface outputs use OBJ only, in **native scanner RAS, in millimetres**.
 No MNI-space surface is written outside the disposable cache.
 
-### Optional Post-process
+---
 
-Post-processing is **disabled by default**. Configure `FREESURFER_HOME` and
+## Optional Postprocessing
+
+Postprocessing is **disabled by default**. Configure `FREESURFER_HOME` and
 `FS_LICENSE`, then add `--post-process`:
 
 ```bash
@@ -112,14 +122,14 @@ python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
 `--postprocess-atlases aparc` selects one atlas. Otherwise both hemispheres
 and the `aparc,aparc.a2009s` atlases are processed.
 
-**DDSurfer post-process is plug-and-play and can be used independently.**
+**DDSurfer postprocessing is plug-and-play and can be used independently.**
 Its only required data inputs are four native cortical surfaces: left/right
 white and pial. They may be reconstructed by DDSurfer, FreeSurfer, FastSurfer
 or another method; DWI, DTI and structural MRI are not required. FreeSurfer,
 its license, and `fsaverage` must be configured.
 
 ```bash
-bash postprocess/run.sh --subject <subID> \
+bash postprocessing/run.sh --subject <subID> \
   --lh-white ./outputs/<subID>/ddsurfer/lh.white.obj --lh-pial ./outputs/<subID>/ddsurfer/lh.pial.obj \
   --rh-white ./outputs/<subID>/ddsurfer/rh.white.obj --rh-pial ./outputs/<subID>/ddsurfer/rh.pial.obj
 ```
@@ -130,7 +140,7 @@ Indexed OBJ/PLY/OFF, STL and FreeSurfer binary surfaces are supported.
 Paired STL inputs must preserve corresponding triangle order.
 No nearest-neighbour correspondence is guessed.
 
-Post-process adds these standard FreeSurfer directories directly under
+Postprocessing adds these standard FreeSurfer directories directly under
 `outputs/<subID>/`:
 
 ```text
@@ -145,28 +155,53 @@ logs/       command logs, timing and coordinate checks
 
 Without an MRI, the reference under `mri/` contains geometry only, not acquired
 or synthesized anatomical intensities. No segmentation-derived tissue volumes
-are reported. See [postprocess usage](postprocess/README.md) for details.
+are reported. See [postprocessing usage](postprocessing/README.md) for details.
 
 Verify weights with `cd ckpts && sha256sum -c SHA256SUMS`.
 
-### Key Dependencies
+---
+
+## Key Dependencies
 
 - Python 3.8+
 - PyTorch and torchvision (CUDA optional for GPU acceleration)
 - NumPy, SciPy, SimpleITK, nibabel, trimesh; pynrrd for DWI conversion
 - Slicer with SlicerDMRI for raw-DWI processing; set `SLICER_PATH` or put `Slicer` on `PATH`.
-- FreeSurfer with a valid license and `fsaverage` (optional surface post-processing).
+- FreeSurfer with a valid license and `fsaverage` (optional surface postprocessing).
 
-Refer to project-specific requirements for exact versions used during training.
+Python dependencies for preprocessing, inference and postprocessing are defined
+in [`requirements.txt`](requirements.txt) at the repository root. The root
+[`environment.yml`](environment.yml) creates a `ddsurfer` conda environment
+and installs the same requirements. From the repository root:
 
-### Slicer Extension
+```bash
+conda env create -f environment.yml
+conda activate ddsurfer
+```
+
+Alternatively, install into an existing compatible Python environment:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Slicer/SlicerDMRI and optional FreeSurfer are external applications and must be
+installed separately; they are not provided by these Python dependency files.
+
+---
+
+## Slicer Extension
 
 **SlicerDDSurfer will be open-sourced soon** at
 [ChengjinLii/SlicerDDSurfer](https://github.com/ChengjinLii/SlicerDDSurfer).
 
-### Support
+---
+
+## Support
 
 Open issues or questions can be directed through the repository’s issue tracker.
+
+---
 
 ## Acknowledgments
 

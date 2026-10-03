@@ -15,9 +15,9 @@ import SimpleITK as sitk
 import trimesh
 
 import run_ddsurfer_pipeline as pipeline
-from postprocess.geometry import load_pair, load_volume, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
-from postprocess.pipeline import parse_args, run as run_postprocess
-from postprocess.stats import write_stats
+from postprocessing.geometry import load_pair, load_volume, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
+from postprocessing.pipeline import parse_args, run as run_postprocess
+from postprocessing.stats import write_stats
 
 
 class PostprocessTests(unittest.TestCase):
@@ -232,7 +232,7 @@ class PostprocessTests(unittest.TestCase):
                     activity[0] -= 1
 
             with patch.dict(os.environ, FS_LICENSE=str(home / 'license.txt')):
-                with patch('postprocess.pipeline.subprocess.run', side_effect=mock_command) as process:
+                with patch('postprocessing.pipeline.subprocess.run', side_effect=mock_command) as process:
                     run_postprocess(args)
                     self.assertEqual(activity[1], 2)
                     self.assertGreater(process.call_count, 20)

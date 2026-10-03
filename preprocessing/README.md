@@ -4,6 +4,11 @@ This directory contains the complete volume-preprocessing workflow.
 `run.sh` calls `dti.sh` to estimate DTI and register scalar maps, then masks,
 resamples and z-score normalizes them for surface inference.
 
+Install Python dependencies using the repository-root
+[`environment.yml`](../environment.yml) or [`requirements.txt`](../requirements.txt).
+Slicer with SlicerDMRI is required separately; see the root
+[installation instructions](../README.md#key-dependencies).
+
 The main DDSurfer pipeline invokes this stage automatically. To run volume
 preprocessing alone:
 
