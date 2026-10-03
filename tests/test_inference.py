@@ -69,7 +69,7 @@ class InferenceTests(unittest.TestCase):
             with patch.object(pipeline,'run_command') as run, patch.object(pipeline,'finalize_outputs'):
                 pipeline.main(['--subject','100610','--skip-preprocessing','--output-root',temp])
         names=[Path(call[0][0][1]).name for call in run.call_args_list]
-        self.assertEqual(names,['DDSurfer_predict.py','native.py'])
+        self.assertEqual(names,['export.py','DDSurfer_predict.py','native.py'])
 
     def test_native_conversion_command(self):
         args=pipeline.parse_args(['--subject','x'])

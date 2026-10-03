@@ -4,8 +4,9 @@ This directory contains the complete volume-preprocessing workflow.
 `run.sh` calls `dti.sh` to estimate DTI and register scalar maps, then masks,
 resamples and z-score normalizes them for surface inference.
 
-The main pipeline selects `--minimal`: FA, MD, and the three eigenvalue maps.
-Unused Trace and DTI-cache `NormMasked` maps are not computed in this mode.
+The main pipeline selects `--minimal`: FA, MD, and the three eigenvalue maps
+are resampled for inference. Trace is generated only in native space, and
+unused DTI-cache `NormMasked` maps are not computed in this mode.
 Standalone `run.sh` and `dti.sh` retain the complete scalar outputs by default.
 Use `--minimal` explicitly for inference-only preprocessing.
 
@@ -89,7 +90,13 @@ It records input checksums before estimation. Identical inputs may resume;
 different inputs or older unrecorded outputs require a new output directory.
 Input NIfTI files are not modified.
 
-The main pipeline removes this cache after exporting native surfaces, unless
+The main pipeline exports native FA, MD, three eigenvalue maps and Trace to
+`outputs/<subject_id>/dti/` as NIfTI files. `export.py` validates their geometry
+against the original DWI and changes only the format, without resampling,
+masking or normalization. Older retained caches without native Trace can still
+export the five existing maps.
+
+The main pipeline removes this cache after exporting native maps and surfaces, unless
 `--keep-cache` is selected. Raw-input records and the native transform are
 retained under `outputs/<subject_id>/logs/`.
 

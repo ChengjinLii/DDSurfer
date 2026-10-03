@@ -147,15 +147,26 @@ class RawPipelineTests(unittest.TestCase):
                 (cache / 'MNI.obj').write_text('temporary')
                 native = pipeline.subject_directory(args) / 'ddsurfer'; native.mkdir()
                 (native / 'lh.white.obj').write_text('final')
-                with patch.object(pipeline, 'run_command') as run, patch.object(pipeline, 'finalize_outputs'):
+                from preprocessing.export import main as export_dti
+                from test_native_dti import make_native_cache
+                make_native_cache(cache / 'dti/x')
+                # Execute only the real export stage; the expensive stages stay mocked.
+                def command(argv, **kwargs):
+                    if Path(argv[1]).name == 'export.py':
+                        export_dti(argv[2:])
+                with patch.object(pipeline, 'run_command', side_effect=command) as run, \
+                        patch.object(pipeline, 'finalize_outputs'):
                     pipeline.main(argv)
                 commands = [call[0][0] for call in run.call_args_list]
                 self.assertEqual([Path(command[1]).name for command in commands],
-                                 ['run.sh', 'DDSurfer_predict.py', 'native.py'])
+                                 ['run.sh', 'export.py', 'DDSurfer_predict.py', 'native.py'])
                 for flag in ('--dwi', '--bval', '--bvec', '--mask'):
                     self.assertIn(flag, commands[0])
                 self.assertEqual(cache.exists(), keep)
                 self.assertTrue((native / 'lh.white.obj').is_file())
+                dti = pipeline.subject_directory(args) / 'dti'
+                self.assertEqual(len(list(dti.glob('*.nii.gz'))), 6)
+                self.assertEqual(nib.load(dti / 'x-FA.nii.gz').shape, (5, 6, 7))
 
     def test_failed_pipeline_keeps_cache_for_diagnosis(self):
         with tempfile.TemporaryDirectory() as tmp:

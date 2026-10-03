@@ -160,6 +160,15 @@ def build_native_conversion_command(args: argparse.Namespace) -> List[str]:
     ]
 
 
+def build_native_dti_export_command(args: argparse.Namespace) -> List[str]:
+    return [
+        sys.executable, str(PROJECT_ROOT / 'preprocessing/export.py'),
+        '--subject', args.subject,
+        '--input-dir', str(cache_directory(args) / 'dti' / args.subject),
+        '--output-dir', str(subject_directory(args) / 'dti'),
+    ]
+
+
 def native_reference(args: argparse.Namespace) -> Path:
     if args.brain_source is not None:
         return args.brain_source
@@ -257,6 +266,7 @@ def main(argv: Iterable[str] | None = None) -> None:
             run_command(preprocessing, env=dict(os.environ, PYTHON_BIN=sys.executable))
         else:
             logging.info("Skipping preprocessing as requested.")
+        run_command(build_native_dti_export_command(args))
         run_command(build_prediction_command(PROJECT_ROOT / 'DDSurfer_predict.py', args, 'both'))
         run_command(build_native_conversion_command(args))
         if args.freesurfer:

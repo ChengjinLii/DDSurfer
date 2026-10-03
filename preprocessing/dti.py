@@ -59,7 +59,8 @@ def run(args):
                                            '--enumeration', kind, tensor, output], [tensor], [output])
 
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        list(pool.map(scalar, scalars))
+        # Trace is retained in native space even when atlas inference needs only five maps.
+        list(pool.map(scalar, SCALARS + ('Trace',)))
     transform = folder / f'{stem}-b0ToAtlasT2.tfm'
     execute('registration', slicer + [args.core_cli / 'BRAINSFit', '--fixedVolume', args.reference_image,
                                      '--movingVolume', b0, '--linearTransform', transform, '--useRigid', '--useAffine'],

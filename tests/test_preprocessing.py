@@ -107,7 +107,8 @@ class PreprocessingTests(unittest.TestCase):
             with patch('preprocessing.dti.subprocess.run', side_effect=command) as commands:
                 dti.run(args)
                 self.assertEqual(activity[1], 2)
-                self.assertFalse(list(folder.glob('*Trace*')))
+                self.assertTrue((folder / 'x-dti-Trace.nhdr').is_file())
+                self.assertFalse((folder / 'x-dti-Trace-Reg.nii.gz').exists())
                 self.assertFalse(list(folder.glob('*NormMasked*')))
                 commands.reset_mock()
                 dti.run(args)
@@ -118,7 +119,7 @@ class PreprocessingTests(unittest.TestCase):
                 commands.reset_mock()
                 args.minimal = False
                 dti.run(args)
-                self.assertEqual(commands.call_count, 6)
+                self.assertEqual(commands.call_count, 5)
                 self.assertTrue((folder / 'x-dti-Trace-Reg.nii.gz').exists())
                 self.assertEqual(len(list(folder.glob('*NormMasked*'))), 4)
                 commands.reset_mock()

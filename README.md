@@ -87,10 +87,11 @@ python3 run_ddsurfer_pipeline.py --subject <subID> \
 The workflow is DWI -> DTI features -> MNI inference -> native surfaces.
 Volume preprocessing is provided by `preprocessing/run.sh`, including the
 DTI-estimation stage in `preprocessing/dti.sh`.
-The main pipeline computes only the five inference channels. Use
+Only the five inference channels are resampled to atlas space. Use
 `--preprocess-jobs 2` to run independent DTI stages concurrently (default: 1).
-Only native surfaces are retained. DTI maps, resampled volumes and MNI meshes
-are intermediate cache files and are removed after success by default.
+Native surfaces and unnormalized native-space DTI scalar maps are retained.
+Registered/normalized volumes, tensors and MNI meshes are intermediate cache
+files and are removed after success by default.
 Use `--keep-cache` to retain them; failed runs retain the cache for diagnosis.
 The source input files are never modified or removed.
 
@@ -105,6 +106,13 @@ CUDA `--precision auto` selects BF16; CPU uses FP32.
 
 ```text
 outputs/<subID>/
+  dti/
+    <subID>-FA.nii.gz
+    <subID>-MD.nii.gz
+    <subID>-MinEigenvalue.nii.gz
+    <subID>-MidEigenvalue.nii.gz
+    <subID>-MaxEigenvalue.nii.gz
+    <subID>-Trace.nii.gz
   ddsurfer/
     lh.white.obj
     lh.pial.obj
@@ -114,6 +122,8 @@ outputs/<subID>/
 ```
 
 Surface outputs use OBJ only, in **native scanner RAS, in millimetres**.
+DTI maps retain the original DWI grid, physical space and unnormalized values;
+they are not the z-scored atlas-space inputs used by the network.
 No MNI-space surface is written outside the disposable cache.
 
 ---

@@ -148,7 +148,7 @@ class PostprocessTests(unittest.TestCase):
                 pipeline.main(['--subject', 'x', '--post-process', '--freesurfer-home', './freesurfer',
                                '--brain-source', './native-b0.nii.gz', '--output-root', temp])
         names = [Path(call[0][0][1]).name for call in run.call_args_list]
-        self.assertEqual(names, ['run.sh', 'DDSurfer_predict.py', 'native.py', 'pipeline.py'])
+        self.assertEqual(names, ['run.sh', 'export.py', 'DDSurfer_predict.py', 'native.py', 'pipeline.py'])
 
     def test_freesurfer_requires_pial_before_starting(self):
         with patch.object(pipeline, 'run_command') as run:

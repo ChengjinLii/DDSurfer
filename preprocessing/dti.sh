@@ -67,7 +67,7 @@ Options:
       --slicer-path <path>    Slicer installation used for DMRI CLI modules.
       --reference-image <path> Reference atlas/T2 image for registration.
       --python-bin <bin>      Python interpreter for helper conversion scripts.
-      --minimal              Only generate the five inference scalar channels.
+      --minimal              Only resample the five inference scalar channels.
       --jobs <N>             Concurrent independent scalar stages (default: 1).
       --mask-flip <mode>      Mask flip mode for normalization (default: 1).
   -h, --help                  Show this message and exit.
