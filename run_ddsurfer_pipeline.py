@@ -71,7 +71,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     )
     for name in INPUT_NAMES:
         parser.add_argument(f'--{name}', type=Path,
-                            help=f'Raw {name} file; supply --dwi, --bval, --bvec and --mask together.')
+                            help=f'Raw {name} file; supply all four together, or omit --mask with --auto-mask.')
+    parser.add_argument('--auto-mask', action='store_true',
+                        help='Generate a missing mask from mean b0 using FreeSurfer SynthStrip (default: off).')
+    parser.add_argument('--mask-threads', type=int, default=4,
+                        help='CPU thread budget for optional mask generation (default: 4).')
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -84,8 +88,9 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default="all",
         help="Predict white surfaces only (wm), or white and pial surfaces (all).",
     )
-    parser.add_argument('--precision', choices=('auto', 'bf16', 'fp32'), default='auto',
-                        help='Inference precision: auto, bf16, or fp32.')
+    parser.add_argument('--precision', choices=('auto', 'bf16', 'fp32'), default='fp32',
+                        help='Default: fp32 on CPU/CUDA; select bf16 on supported CUDA devices '
+                             'to reduce memory use, or auto to follow the model manifest.')
     parser.add_argument('--checkpoint-root', type=Path, default=PROJECT_ROOT / 'weights')
     parser.add_argument('--template-dir', type=Path, default=PROJECT_ROOT / 'template')
     parser.add_argument('--save-debug', action='store_true', help='Save crop-coordinate predictions in cache; use --keep-cache to retain.')
@@ -121,6 +126,19 @@ def subject_directory(args):
 
 def cache_directory(args):
     return subject_directory(args) / '.cache'
+
+
+def build_mask_command(args, files):
+    command = [sys.executable, str(PROJECT_ROOT / 'preprocessing/brain_mask.py'),
+               '--output', str(subject_directory(args) / 'dti' / f'{args.subject}-brainmask.nii.gz'),
+               '--work-dir', str(cache_directory(args) / 'mask'),
+               '--record', str(subject_directory(args) / 'logs/mask.json'),
+               '--threads', str(args.mask_threads)]
+    for name in ('dwi', 'bval', 'bvec'):
+        command += [f'--{name}', str(files[name])]
+    if args.freesurfer_home is not None:
+        command += ['--freesurfer-home', str(args.freesurfer_home)]
+    return command
 
 
 def build_preprocessing_command(args: argparse.Namespace) -> List[str]:
@@ -264,6 +282,8 @@ def main(argv: Iterable[str] | None = None) -> None:
         raise ValueError('Invalid subject identifier')
     if args.preprocess_jobs < 1:
         raise ValueError('--preprocess-jobs must be positive')
+    if args.mask_threads < 1:
+        raise ValueError('--mask-threads must be positive')
     if subject_directory(args).is_symlink():
         raise ValueError('Refusing to write through a symlinked subject directory')
     if cache_directory(args).is_symlink():
@@ -275,10 +295,9 @@ def main(argv: Iterable[str] | None = None) -> None:
         if args.freesurfer_home is None:
             raise ValueError('Set FREESURFER_HOME or pass --freesurfer-home')
 
-    preprocessing = None
+    files = None
     if not args.skip_preprocessing:
-        preprocessing = build_preprocessing_command(args)
-        files = resolve_inputs(args.subject, args.raw_input_root,
+        files = resolve_inputs(args.subject, args.raw_input_root, allow_missing_mask=args.auto_mask,
                                **{name: getattr(args, name) for name in INPUT_NAMES})
         for path in files.values():
             try:
@@ -293,8 +312,17 @@ def main(argv: Iterable[str] | None = None) -> None:
     logging.basicConfig(level=getattr(logging, args.log_level), format="[%(levelname)s] %(message)s")
     logging.getLogger().addHandler(file_log)
     try:
-        if preprocessing is not None:
-            run_command(preprocessing, env=dict(os.environ, PYTHON_BIN=sys.executable),
+        if files is not None:
+            if 'mask' not in files:
+                logging.info('Generating a missing brain mask with FreeSurfer SynthStrip.')
+                run_command(build_mask_command(args, files),
+                            log_path=cache_directory(args) / 'logs/mask.log')
+                files['mask'] = subject_directory(args) / 'dti' / f'{args.subject}-brainmask.nii.gz'
+            elif args.auto_mask:
+                logging.info('Using the supplied brain mask; automatic masking is not needed.')
+            for name, path in files.items():
+                setattr(args, name, path)
+            run_command(build_preprocessing_command(args), env=dict(os.environ, PYTHON_BIN=sys.executable),
                         log_path=cache_directory(args) / 'logs/preprocessing.log')
         else:
             logging.info("Skipping preprocessing as requested.")

@@ -9,7 +9,7 @@
 [![NumPy](https://img.shields.io/badge/Numerics-NumPy-013243?logo=numpy&logoColor=white)](#key-dependencies)
 [![SimpleITK](https://img.shields.io/badge/Imaging-SimpleITK-0098A9)](#key-dependencies)
 [![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
-[![FreeSurfer](https://img.shields.io/badge/Postprocessing-FreeSurfer%20%28optional%29-6A737D)](#optional-postprocessing)
+[![FreeSurfer](https://img.shields.io/badge/Optional-FreeSurfer-6A737D)](#optional-postprocessing)
 
 [Publication](#publication) | [Overview](#overview) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](#optional-postprocessing) | [Dependencies](#key-dependencies)
 
@@ -19,7 +19,7 @@ DDSurfer reconstructs white and pial cortical surfaces from diffusion MRI.
 Preprocessing, surface inference and optional postprocessing are provided in
 one workflow, with model weights loaded automatically from `weights/`.
 
-**Four diffusion inputs. White and pial surfaces for both hemispheres.**
+**Diffusion MRI in. White and pial surfaces for both hemispheres out.**
 
 ---
 
@@ -35,8 +35,7 @@ DDSurfer has been accepted and published online in **Advanced Science**:
 
 If you use DDSurfer in your research, please cite the paper above.
 
-<details>
-<summary><strong>Citation (BibTeX)</strong></summary>
+### Citation (BibTeX)
 
 ```bibtex
 @article{Li2026DDSurfer,
@@ -54,8 +53,6 @@ If you use DDSurfer in your research, please cite the paper above.
 }
 ```
 
-</details>
-
 ---
 
 ## Overview
@@ -69,8 +66,9 @@ surface-based analysis and integration with 3D Slicer.
 
 ## Inputs
 
-The pipeline takes **four files**: corrected 4D DWI, bval, bvec and a brain mask
-on the same native voxel grid. No precomputed DTI or structural MRI is required.
+Provide corrected 4D DWI, bval, bvec and a brain mask on the same native voxel
+grid. No precomputed DTI or structural MRI is required. If a mask is unavailable,
+enable [optional brain masking](#optional-brain-masking); it is off by default.
 
 ```text
 inputs/<subID>/
@@ -123,9 +121,40 @@ Default paths:
 | `--raw-input-root <path>` | Change the input directory. |
 | `--output-root <path>` | Change the output directory. |
 | `--device cuda:0` or `--device cpu` | Select GPU or CPU inference. |
-| `--precision auto` | Use BF16 for CUDA inference (requires BF16 support), or FP32 on CPU. |
+| `--precision fp32` | Default on CPU and GPU; use the same precision across devices. |
+| `--precision bf16` | Optional mixed precision to reduce GPU memory use; requires BF16-capable CUDA hardware. |
+| `--precision auto` | Follow the model manifest on CUDA (FP32 for the bundled models); FP32 on CPU. |
+| `--auto-mask` | Generate a missing brain mask with FreeSurfer SynthStrip; default: off. |
 | `--preprocess-jobs 2` | Run independent DTI stages concurrently; default: 1. |
+| `--post-process` | Enable optional FreeSurfer postprocessing; default: off. |
 | `--keep-cache` | Retain intermediate files and detailed stage logs. |
+
+### CPU and GPU Precision
+
+CPU and GPU inference use the **same models and coordinate transforms**, with
+**FP32 by default**. Results should be close, but are not guaranteed to be bitwise
+identical across devices.
+
+To use FP32 on either device:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --device cpu --precision fp32
+python3 run_ddsurfer_pipeline.py --subject <subID> --device cuda:0 --precision fp32
+```
+
+If GPU memory is insufficient, explicitly select BF16 on supported hardware:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --device cuda:0 --precision bf16
+```
+
+There is no automatic precision downgrade. BF16 reduces numerical precision and
+can change surface coordinates; it is not merely a faster execution mode.
+
+Compare devices using identical preprocessed inputs, weights and settings.
+See [PyTorch's numerical accuracy guidance](https://docs.pytorch.org/docs/stable/notes/numerical_accuracy.html).
+
+### Cache and Reuse
 
 DTI maps and surfaces are saved automatically. Intermediate cache is removed
 after success; failed runs retain it for diagnosis. Source inputs are never
@@ -139,7 +168,34 @@ To verify the bundled weights:
 
 ---
 
+## Optional Brain Masking
+
+If no mask is available, add `--auto-mask`:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --auto-mask
+# Or supply the three diffusion files explicitly:
+python3 run_ddsurfer_pipeline.py --subject <subID> --auto-mask \
+  --dwi ./data/dwi.nii.gz --bval ./data/dwi.bval --bvec ./data/dwi.bvec
+```
+
+- **Default: off.** Without this option, a mask is required.
+- **Method:** FreeSurfer `mri_synthstrip` on the mean b0 image (`b <= 50`).
+- **Setup:** configure `FREESURFER_HOME`, or pass `--freesurfer-home <path>`.
+- **Execution:** CPU only; `--mask-threads 4` sets the thread budget.
+- **Output:** `dti/<subID>-brainmask.nii.gz`, retained after cache cleanup.
+
+A supplied mask always takes priority. Automatic masking neither replaces it
+nor enables surface postprocessing. Inspect the generated mask before using
+the results in an analysis; it need not match a manually supplied mask.
+See [mask generation and validation](preprocessing/README.md#optional-brain-masking).
+
+---
+
 ## Outputs
+
+DTI maps, reconstructed surfaces and concise logs are retained for every run.
+The FreeSurfer analysis directories are added **only with `--post-process`**:
 
 ```text
 outputs/<subID>/
@@ -150,13 +206,34 @@ outputs/<subID>/
     <subID>-MidEigenvalue.nii.gz
     <subID>-MaxEigenvalue.nii.gz
     <subID>-Trace.nii.gz
+    <subID>-brainmask.nii.gz   if generated with --auto-mask
   ddsurfer/
     lh.white.obj
     lh.pial.obj
     rh.white.obj
     rh.pial.obj
-  logs/           run summary, input records and execution log
+  surf/                      optional postprocessing
+    lh.white, lh.pial, rh.white, rh.pial
+    lh.curv, lh.sulc, lh.thickness, lh.area
+    lh.inflated, lh.sphere, lh.sphere.reg
+    rh.*                     corresponding right-hemisphere results
+  label/                     optional cortex labels and parcellations
+    lh.cortex.label, rh.cortex.label
+    lh.aparc.annot, rh.aparc.annot
+    lh.aparc.a2009s.annot, rh.aparc.a2009s.annot
+  stats/                     optional regional surface statistics
+    lh.aparc.stats, rh.aparc.stats
+    lh.aparc.a2009s.stats, rh.aparc.a2009s.stats
+  fsaverage/                 optional standard-surface overlays
+    lh.thickness.mgh, rh.thickness.mgh, ...
+  mri/                       optional FreeSurfer reference volumes
+    brain.mgz, orig.mgz
+  logs/                      run summary and execution logs
 ```
+
+Atlas and hemisphere selections determine which postprocessing files appear.
+See the [postprocessing output guide](postprocessing/README.md#outputs) for
+file types and interpretation.
 
 ---
 
@@ -199,18 +276,9 @@ No nearest-neighbour correspondence is guessed.
 
 ### Postprocessing Results
 
-Postprocessing adds these standard FreeSurfer directories directly under
-`outputs/<subID>/`:
-
-```text
-surf/       white/pial, curvature, sulcal depth, thickness, area,
-            inflated surfaces, spheres and spherical registration
-label/      cortex labels, atlas annotations and regional labels
-stats/      surface-only regional statistics
-fsaverage/  thickness, curvature, sulcal-depth and area overlays
-mri/        native reference geometry for FreeSurfer compatibility
-logs/       command logs, timing and coordinate checks
-```
+Postprocessing adds curvature, sulcal depth, thickness, surface area, inflated
+and spherical surfaces, cortical parcellations, regional statistics and
+`fsaverage` overlays. The directory layout is shown in [Outputs](#outputs).
 
 Without an MRI, the reference under `mri/` contains geometry only, not acquired
 or synthesized anatomical intensities. No segmentation-derived tissue volumes
@@ -226,7 +294,7 @@ are reported. See [postprocessing usage](postprocessing/README.md) for details.
 | PyTorch, torchvision | Surface inference | Required; CUDA optional |
 | NumPy, SciPy, SimpleITK, nibabel, trimesh, pynrrd | Image and surface processing | Required |
 | Slicer with SlicerDMRI | Raw-DWI processing | Set `SLICER_PATH` or put `Slicer` on `PATH` |
-| FreeSurfer | Surface postprocessing | Optional; license and `fsaverage` required when enabled |
+| FreeSurfer | Optional masking and surface postprocessing | `mri_synthstrip` for masking; license and `fsaverage` for postprocessing |
 
 ### Python Environment
 

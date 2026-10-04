@@ -107,6 +107,45 @@ class InferenceTests(unittest.TestCase):
         self.assertEqual(resolve_precision('auto',torch.device('cpu'),'bf16'),'fp32')
         with self.assertRaises(ValueError):resolve_precision('bf16',torch.device('cpu'),'bf16')
 
+    def test_pipeline_and_prediction_default_to_fp32_on_both_devices(self):
+        for device in ('cpu', 'cuda:0'):
+            with self.subTest(device=device), tempfile.TemporaryDirectory() as temp:
+                args = pipeline.parse_args(['--subject', 'x', '--device', device])
+                self.assertEqual(args.precision, 'fp32')
+                command = pipeline.build_prediction_command(ROOT/'DDSurfer_predict.py', args, 'both')
+                self.assertEqual(command[command.index('--precision') + 1], 'fp32')
+                (Path(temp)/'x').mkdir()
+                with patch('inference.predict.SurfacePredictor') as predictor:
+                    main('left', ['--input_root', temp, '--subjects', 'x', '--device', device])
+                self.assertEqual(predictor.call_args.args[0].precision, 'fp32')
+
+    def test_explicit_precision_overrides_are_preserved(self):
+        for precision in ('bf16', 'fp32', 'auto'):
+            with self.subTest(precision=precision), tempfile.TemporaryDirectory() as temp:
+                args = pipeline.parse_args(['--subject', 'x', '--precision', precision])
+                command = pipeline.build_prediction_command(ROOT/'DDSurfer_predict.py', args, 'both')
+                self.assertEqual(command[command.index('--precision') + 1], precision)
+                (Path(temp)/'x').mkdir()
+                with patch('inference.predict.SurfacePredictor') as predictor:
+                    main('left', ['--input_root', temp, '--subjects', 'x', '--precision', precision])
+                self.assertEqual(predictor.call_args.args[0].precision, precision)
+
+    def test_bundled_auto_precision_is_fp32_without_bf16_support(self):
+        config = json.loads((ROOT/'weights/manifest.json').read_text())
+        self.assertEqual(config['precision'], 'fp32')
+        with patch('torch.cuda.is_bf16_supported', return_value=False):
+            for device in ('cpu', 'cuda:0'):
+                self.assertEqual(resolve_precision('auto', torch.device(device), config['precision']), 'fp32')
+
+    def test_cuda_precision_requires_supported_bf16_or_explicit_fp32(self):
+        device = torch.device('cuda:0')
+        with patch('torch.cuda.is_bf16_supported', return_value=True):
+            self.assertEqual(resolve_precision('auto', device, 'bf16'), 'bf16')
+        with patch('torch.cuda.is_bf16_supported', return_value=False):
+            self.assertEqual(resolve_precision('fp32', device, 'bf16'), 'fp32')
+            with self.assertRaisesRegex(ValueError, 'choose fp32'):
+                resolve_precision('auto', device, 'bf16')
+
     def test_prediction_chains_wm_to_pial_and_exports_physical_coordinates(self):
         with tempfile.TemporaryDirectory() as temp:
             predictor=SurfacePredictor.__new__(SurfacePredictor)

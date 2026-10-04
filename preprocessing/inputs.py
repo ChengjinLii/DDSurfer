@@ -18,19 +18,21 @@ from utils.files import sha256_file
 INPUT_NAMES = ('dwi', 'bval', 'bvec', 'mask')
 
 
-def resolve_inputs(subject, input_root=None, **files):
+def resolve_inputs(subject, input_root=None, *, allow_missing_mask=False, **files):
     if Path(subject).name != subject or subject in ('', '.', '..'):
         raise ValueError('Invalid subject identifier')
     supplied = [files.get(name) is not None for name in INPUT_NAMES]
     if any(supplied):
-        if not all(supplied):
+        if not all(supplied) and not (allow_missing_mask and all(supplied[:3])):
             raise ValueError('Provide --dwi, --bval, --bvec and --mask together')
-        result = {name: Path(files[name]).expanduser().resolve() for name in INPUT_NAMES}
+        result = {name: Path(files[name]).expanduser().resolve()
+                  for name in INPUT_NAMES if files.get(name) is not None}
     else:
         if input_root is None:
             raise ValueError('Provide all four input files or an input root')
         root = Path(input_root).expanduser().resolve()
         result = None
+        maskless = None
         for directory in (root / subject / 'T1w/Diffusion', root / subject, root):
             for extension in ('.nii.gz', '.nii'):
                 for mask_extension in ('.nii.gz', '.nii'):
@@ -42,15 +44,20 @@ def resolve_inputs(subject, input_root=None, **files):
                         if all(path.is_file() for path in candidate.values()):
                             result = candidate
                             break
+                        if allow_missing_mask and maskless is None and all(
+                                candidate[name].is_file() for name in INPUT_NAMES[:3]):
+                            maskless = {name: candidate[name] for name in INPUT_NAMES[:3]}
                     if result is not None:
                         break
                 if result is not None:
                     break
             if result is not None:
                 break
+        if result is None and allow_missing_mask:
+            result = maskless
         if result is None:
             raise FileNotFoundError(f'No DWI/bval/bvec/mask bundle found under {root}; '
-                                    'provide the four file paths explicitly')
+                                    'provide the file paths explicitly, or use --auto-mask if only the mask is missing')
     result = {name: path.resolve() for name, path in result.items()}
     for name, path in result.items():
         if not path.is_file() or path.stat().st_size == 0:
@@ -60,30 +67,24 @@ def resolve_inputs(subject, input_root=None, **files):
     return result
 
 
-def validate_inputs(files):
-    for name in ('dwi', 'mask'):
-        if not str(files[name]).endswith(('.nii', '.nii.gz')):
-            raise ValueError(f'{name} must be a NIfTI file (.nii or .nii.gz)')
-    images = {name: nib.load(str(files[name])) for name in ('dwi', 'mask')}
-    dwi, mask = images['dwi'], images['mask']
+def _validate_geometry(name, image):
+    if not np.isfinite(image.affine).all() or abs(np.linalg.det(image.affine[:3, :3])) < 1e-8:
+        raise ValueError(f'Invalid {name} affine')
+    q, qc = image.get_qform(coded=True)
+    s, sc = image.get_sform(coded=True)
+    if qc and sc and not np.allclose(q, s, atol=1e-4, rtol=0):
+        raise ValueError(f'{name} qform and sform disagree')
+    if image.header.get_xyzt_units()[0] not in ('unknown', 'mm'):
+        raise ValueError(f'{name} spatial units must be millimetres')
+
+
+def validate_diffusion_inputs(files):
+    if not str(files['dwi']).endswith(('.nii', '.nii.gz')):
+        raise ValueError('dwi must be a NIfTI file (.nii or .nii.gz)')
+    dwi = nib.load(str(files['dwi']))
     if len(dwi.shape) != 4 or dwi.shape[3] < 7:
         raise ValueError('DWI must be a 4D NIfTI with diffusion directions and b0 volumes, not a DTI/scalar map')
-    if len(mask.shape) != 3 or mask.shape != dwi.shape[:3]:
-        raise ValueError('The 3D brain mask must have the same voxel grid as the DWI')
-    for name, image in images.items():
-        if not np.isfinite(image.affine).all() or abs(np.linalg.det(image.affine[:3, :3])) < 1e-8:
-            raise ValueError(f'Invalid {name} affine')
-        q, qc = image.get_qform(coded=True)
-        s, sc = image.get_sform(coded=True)
-        if qc and sc and not np.allclose(q, s, atol=1e-4, rtol=0):
-            raise ValueError(f'{name} qform and sform disagree')
-        if image.header.get_xyzt_units()[0] not in ('unknown', 'mm'):
-            raise ValueError(f'{name} spatial units must be millimetres')
-    if not np.allclose(dwi.affine, mask.affine, atol=1e-4, rtol=0):
-        raise ValueError('Brain mask and DWI are not in the same physical space; resample the mask to the DWI grid first')
-    mask_data = np.asarray(mask.dataobj)
-    if not np.isfinite(mask_data).all() or np.any(mask_data < 0) or not np.any(mask_data > 0):
-        raise ValueError('Brain mask must be finite, nonnegative and nonempty')
+    _validate_geometry('dwi', dwi)
     bvals = np.atleast_1d(np.loadtxt(str(files['bval']))).reshape(-1)
     bvecs = np.atleast_2d(np.loadtxt(str(files['bvec'])))
     count = dwi.shape[3]
@@ -106,6 +107,26 @@ def validate_inputs(files):
         raise ValueError('Gradient directions do not span the six tensor coefficients')
     return dict(shape=list(dwi.shape), affine=dwi.affine.tolist(),
                 b0_volumes=int((~weighted).sum()), diffusion_volumes=int(weighted.sum()))
+
+
+def validate_mask(dwi_path, mask_path):
+    if not str(mask_path).endswith(('.nii', '.nii.gz')):
+        raise ValueError('mask must be a NIfTI file (.nii or .nii.gz)')
+    dwi, mask = nib.load(str(dwi_path)), nib.load(str(mask_path))
+    if len(mask.shape) != 3 or mask.shape != dwi.shape[:3]:
+        raise ValueError('The 3D brain mask must have the same voxel grid as the DWI')
+    _validate_geometry('mask', mask)
+    if not np.allclose(dwi.affine, mask.affine, atol=1e-4, rtol=0):
+        raise ValueError('Brain mask and DWI are not in the same physical space; resample the mask to the DWI grid first')
+    data = np.asarray(mask.dataobj)
+    if not np.isfinite(data).all() or np.any(data < 0) or not np.any(data > 0):
+        raise ValueError('Brain mask must be finite, nonnegative and nonempty')
+
+
+def validate_inputs(files):
+    geometry = validate_diffusion_inputs(files)
+    validate_mask(files['dwi'], files['mask'])
+    return geometry
 
 
 def fingerprint(path):

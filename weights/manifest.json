@@ -74,7 +74,7 @@
       176
     ]
   },
-  "precision": "bf16",
+  "precision": "fp32",
   "postprocess_iters": {
     "white": 10,
     "pial": 0

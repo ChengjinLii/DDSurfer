@@ -166,7 +166,9 @@ def main(default_hemisphere, argv=None):
     parser.add_argument('--surf_hemi', choices=('left', 'right', 'both'), default=default_hemisphere,
                         help='Default: both hemispheres; select left/right to predict one side.')
     parser.add_argument('--device', default='cuda:0')
-    parser.add_argument('--precision', choices=('auto','bf16','fp32'), default='auto')
+    parser.add_argument('--precision', choices=('auto','bf16','fp32'), default='fp32',
+                        help='Default: fp32 on CPU/CUDA; bf16 reduces memory use on supported '
+                             'CUDA devices; auto follows the model manifest.')
     parser.add_argument('--predict_mode', choices=('wm','all'), default='all')
     parser.add_argument('--input_root', type=Path, default=ROOT/'outputs/.cache/volumes')
     parser.add_argument('--output_dir', type=Path, default=ROOT/'outputs/.cache/predictions')

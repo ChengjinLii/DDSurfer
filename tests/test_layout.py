@@ -77,7 +77,8 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_relocated_python_helpers_work_outside_repository(self):
-        scripts = ('preprocessing/inputs.py', 'preprocessing/export.py', 'preprocessing/mask.py',
+        scripts = ('preprocessing/inputs.py', 'preprocessing/brain_mask.py',
+                   'preprocessing/export.py', 'preprocessing/mask.py',
                    'preprocessing/resample.py', 'preprocessing/normalize.py',
                    'preprocessing/normalize_dti.py', 'tools/obj_to_stl.py',
                    'tools/stl_to_obj.py', 'tools/translate_mesh.py')
