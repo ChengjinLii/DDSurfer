@@ -66,7 +66,9 @@ class InferenceTests(unittest.TestCase):
 
     def test_pipeline_calls_prediction_once_for_both_sides(self):
         with tempfile.TemporaryDirectory() as temp:
-            with patch.object(pipeline,'run_command') as run, patch.object(pipeline,'finalize_outputs'):
+            with patch.object(pipeline,'run_command') as run, patch.object(pipeline,'finalize_outputs'), \
+                    patch.object(pipeline, 'inspect_run', return_value={'signature': None}), \
+                    patch.object(pipeline, 'check_runtime'):
                 pipeline.main(['--subject','100610','--skip-preprocessing','--output-root',temp])
         names=[Path(call[0][0][1]).name for call in run.call_args_list]
         self.assertEqual(names,['export.py','DDSurfer_predict.py','native.py'])

@@ -15,11 +15,12 @@ from utils.files import atomic_json, sha256_file
 def subject_lock(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a') as stream:
+    descriptor = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'a') as stream:
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError(f'Another process is using this subject cache: {path.parent}')
+            raise RuntimeError(f'Another process is using this subject: {path.parent}')
         try:
             yield
         finally:

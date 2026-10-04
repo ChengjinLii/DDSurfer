@@ -116,7 +116,9 @@ class PipelineLogTests(unittest.TestCase):
 
                 # Inference and tensor estimation are mocked; exports and conversion are real.
                 (cache / 'volumes/x').mkdir(parents=True)
-                with patch.object(pipeline, 'run_command', side_effect=run):
+                with patch.object(pipeline, 'run_command', side_effect=run), \
+                        patch.object(pipeline, 'inspect_run', return_value={'signature': 'fixture'}), \
+                        patch.object(pipeline, 'check_runtime'):
                     pipeline.main(argv)
                 directory = pipeline.subject_directory(args)
                 self.assertEqual(sorted(p.name for p in (directory / 'logs').iterdir()),

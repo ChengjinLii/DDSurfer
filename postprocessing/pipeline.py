@@ -22,6 +22,7 @@ import numpy as np
 from utils.files import atomic_json, sha256_file
 from utils.stages import StageCache, subject_lock
 from postprocessing.geometry import load_pair, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
+from postprocessing.environment import check_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,11 +57,10 @@ def run_locked(args):
         raise ValueError('Invalid subject identifier')
     if args.threads < 1:
         raise ValueError('--threads must be positive')
-    if args.freesurfer_home is None:
-        raise ValueError('Set FREESURFER_HOME or pass --freesurfer-home')
-    home = args.freesurfer_home.resolve()
+    environment = check_environment(args.freesurfer_home, args.hemi, args.atlases)
+    home = environment['home']
     root = args.output_root.resolve()
-    hemis = ('lh', 'rh') if args.hemi == 'both' else (('lh',) if args.hemi == 'left' else ('rh',))
+    hemis = environment['hemis']
     surfaces = {}
     for hemi in hemis:
         surfaces[hemi] = {}
@@ -78,28 +78,11 @@ def run_locked(args):
             if path is None:
                 raise ValueError(f'Provide --{hemi}-{kind}')
             surfaces[hemi][kind] = path.resolve()
-    atlases = tuple(dict.fromkeys(name.strip() for name in args.atlases.split(',') if name.strip()))
-    if not atlases or any(Path(a).name != a or a in ('.', '..') for a in atlases):
-        raise ValueError('Specify valid cortical atlas names')
-    modern_metrics = os.access(str(home / 'bin/mris_place_surface'), os.X_OK)
-    metric_binary = 'mris_place_surface' if modern_metrics else 'mris_thickness'
-    binaries = ('mris_curvature', 'mris_inflate', 'mris_sphere', 'mris_register', metric_binary,
-                'mri_label2label', 'mri_surf2surf', 'mri_annotation2label')
-    for name in binaries:
-        if not os.access(str(home / 'bin' / name), os.X_OK):
-            raise FileNotFoundError(f'FreeSurfer executable not available: {name}')
-    license_file = Path(os.environ.get('FS_LICENSE', str(home / 'license.txt')))
-    if not license_file.is_file():
-        raise FileNotFoundError('Set FS_LICENSE to a valid FreeSurfer license file')
-    fsaverage = home / 'subjects/fsaverage'
-    for hemi in hemis:
-        required = [fsaverage / 'label' / f'{hemi}.cortex.label',
-                    fsaverage / 'surf' / f'{hemi}.sphere.reg',
-                    home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif']
-        required += [fsaverage / 'label' / f'{hemi}.{atlas}.annot' for atlas in atlases]
-        for path in required:
-            if not path.is_file():
-                raise FileNotFoundError(path)
+    atlases = environment['atlases']
+    modern_metrics = environment['modern_metrics']
+    metric_binary = environment['metric_binary']
+    license_file = environment['license_file']
+    fsaverage = environment['fsaverage']
 
     files = volume_files(args.brain_source) if args.brain_source is not None else []
     for hemi in hemis:

@@ -25,6 +25,10 @@ Install Python dependencies from the root [`environment.yml`](../environment.yml
 or [`requirements.txt`](../requirements.txt). Slicer with SlicerDMRI is required
 separately. See [installation](../README.md#key-dependencies).
 
+The main entry point validates inputs, models, device support and Slicer CLI
+modules before starting this stage. Use its `--resume` option to reuse verified
+final results after intermediate cache cleanup.
+
 ---
 
 ## Run

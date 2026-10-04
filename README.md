@@ -124,10 +124,23 @@ Default paths:
 | `--precision fp32` | Default on CPU and GPU; use the same precision across devices. |
 | `--precision bf16` | Optional mixed precision to reduce GPU memory use; requires BF16-capable CUDA hardware. |
 | `--precision auto` | Follow the model manifest on CUDA (FP32 for the bundled models); FP32 on CPU. |
+| `--cpu-threads 4` | CPU thread budget for inference; default: 4. |
+| `--max-gpu-gib 24` | GPU allocation budget for inference in GiB; default: 24. |
 | `--auto-mask` | Generate a missing brain mask with FreeSurfer SynthStrip; default: off. |
 | `--preprocess-jobs 2` | Run independent DTI stages concurrently; default: 1. |
 | `--post-process` | Enable optional FreeSurfer postprocessing; default: off. |
 | `--keep-cache` | Retain intermediate files and detailed stage logs. |
+| `--resume` | Reuse completed, checksum-verified results, even after cache cleanup. |
+
+Before image processing starts, the pipeline checks inputs, model assets,
+device/precision support and the required Slicer modules. FreeSurfer tools,
+license and atlas files are checked only when postprocessing is requested;
+automatic masking checks SynthStrip separately. A subject-wide lock prevents
+two main-pipeline runs from writing or cleaning the same output directory.
+
+The resource limits apply to **inference**, not registration or postprocessing.
+CUDA inference requires a budget of at least 8 GiB, plus a 4-GiB free-memory
+margin. Preflight cannot reserve the GPU against other processes.
 
 ### CPU and GPU Precision
 
@@ -159,6 +172,21 @@ See [PyTorch's numerical accuracy guidance](https://docs.pytorch.org/docs/stable
 DTI maps and surfaces are saved automatically. Intermediate cache is removed
 after success; failed runs retain it for diagnosis. Source inputs are never
 modified or removed.
+
+To reuse final results without retaining the cache:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --resume
+```
+
+Reuse requires a successful run record, matching inputs, weights, templates,
+settings and implementation, and intact output checksums. Otherwise, the
+pipeline attempts a normal run; existing cache/input safety checks still apply.
+Older results without a reuse record are not skipped. Keep the original run
+options when adding `--resume`; reuse does not recreate a deleted cache.
+
+`--skip-preprocessing` instead uses an existing retained preprocessing cache.
+It cannot be combined with `--resume`.
 
 To verify the bundled weights:
 

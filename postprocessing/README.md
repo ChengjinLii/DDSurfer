@@ -20,6 +20,10 @@ default; `--post-process` enables it after native-space surface conversion.
 
 See the root [installation instructions](../README.md#key-dependencies).
 
+The main pipeline checks the required FreeSurfer executables, license and atlas
+files before preprocessing. These checks are not required for surface inference
+without `--post-process`. Final-result reuse also verifies postprocessing outputs.
+
 ---
 
 ## Run

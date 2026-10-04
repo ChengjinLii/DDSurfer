@@ -144,7 +144,9 @@ class PostprocessTests(unittest.TestCase):
         raw = {name: Path('raw') / name for name in ('dwi', 'bval', 'bvec', 'mask')}
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(pipeline, 'run_command') as run, patch.object(pipeline, 'resolve_inputs', return_value=raw), \
-                    patch.object(pipeline, 'finalize_outputs'):
+                    patch.object(pipeline, 'finalize_outputs'), \
+                    patch.object(pipeline, 'inspect_run', return_value={'signature': None}), \
+                    patch.object(pipeline, 'check_runtime'):
                 pipeline.main(['--subject', 'x', '--post-process', '--freesurfer-home', './freesurfer',
                                '--brain-source', './native-b0.nii.gz', '--output-root', temp])
         names = [Path(call[0][0][1]).name for call in run.call_args_list]

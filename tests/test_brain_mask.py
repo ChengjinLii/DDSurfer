@@ -173,7 +173,9 @@ class BrainMaskTests(unittest.TestCase):
                         source = nib.load(files['dwi'])
                         nib.save(nib.Nifti1Image(np.ones(source.shape[:3], np.uint8), source.affine), target)
                 with patch.object(pipeline, 'run_command', side_effect=run) as commands, \
-                        patch.object(pipeline, 'finalize_outputs'):
+                        patch.object(pipeline, 'finalize_outputs'), \
+                        patch.object(pipeline, 'inspect_run', return_value={'signature': None}), \
+                        patch.object(pipeline, 'check_runtime'):
                     pipeline.main(argv)
                 values = [call.args[0] for call in commands.call_args_list]
                 names = [Path(command[1]).name for command in values]

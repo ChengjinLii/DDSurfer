@@ -155,7 +155,9 @@ class RawPipelineTests(unittest.TestCase):
                     if Path(argv[1]).name == 'export.py':
                         export_dti(argv[2:])
                 with patch.object(pipeline, 'run_command', side_effect=command) as run, \
-                        patch.object(pipeline, 'finalize_outputs'):
+                        patch.object(pipeline, 'finalize_outputs'), \
+                        patch.object(pipeline, 'inspect_run', return_value={'signature': None}), \
+                        patch.object(pipeline, 'check_runtime'):
                     pipeline.main(argv)
                 commands = [call[0][0] for call in run.call_args_list]
                 self.assertEqual([Path(command[1]).name for command in commands],
@@ -173,7 +175,9 @@ class RawPipelineTests(unittest.TestCase):
             root = Path(tmp); make_bundle(root / 'inputs/x')
             argv = ['--subject', 'x', '--raw-input-root', str(root / 'inputs'), '--output-root', str(root / 'outputs')]
             args = pipeline.parse_args(argv); cache = pipeline.cache_directory(args); cache.mkdir(parents=True)
-            with patch.object(pipeline, 'run_command', side_effect=RuntimeError('test failure')):
+            with patch.object(pipeline, 'run_command', side_effect=RuntimeError('test failure')), \
+                    patch.object(pipeline, 'inspect_run', return_value={'signature': None}), \
+                    patch.object(pipeline, 'check_runtime'):
                 with self.assertRaisesRegex(RuntimeError, 'test failure'):
                     pipeline.main(argv)
             self.assertTrue(cache.is_dir())
