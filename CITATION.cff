@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use DDSurfer in academic research, please cite the following paper."
+title: "DDSurfer"
+type: software
+license: MIT
+repository-code: "https://github.com/ChengjinLii/DDSurfer"
+authors:
+  - family-names: "Li"
+    given-names: "Chengjin"
+preferred-citation:
+  type: article
+  title: "DDSurfer: A Weakly-Supervised Dual-Stream Deep Learning Framework for Cortical Surface Reconstruction From Diffusion MRI"
+  authors:
+    - family-names: "Li"
+      given-names: "Chengjin"
+    - family-names: "Zhang"
+      given-names: "Wei"
+    - family-names: "Zhu"
+      given-names: "Xi"
+    - family-names: "Chen"
+      given-names: "Yuqian"
+    - family-names: "Sochen"
+      given-names: "Nir A."
+    - family-names: "Rushmore"
+      given-names: "Jarrett"
+    - family-names: "Westin"
+      given-names: "Carl-Fredrik"
+    - family-names: "Rathi"
+      given-names: "Yogesh"
+    - family-names: "O'Donnell"
+      given-names: "Lauren J."
+    - family-names: "Pasternak"
+      given-names: "Ofer"
+    - family-names: "Zhang"
+      given-names: "Fan"
+  journal: "Advanced Science"
+  year: 2026
+  doi: "10.1002/advs.76596"
+  url: "https://doi.org/10.1002/advs.76596"

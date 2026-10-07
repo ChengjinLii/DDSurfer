@@ -33,7 +33,8 @@ DDSurfer has been accepted and published online in **Advanced Science**:
 > for Cortical Surface Reconstruction From Diffusion MRI."](https://doi.org/10.1002/advs.76596)
 > *Advanced Science* (2026): e76596.
 
-If you use DDSurfer in your research, please cite the paper above.
+If you use DDSurfer in academic research, please cite our paper.
+Machine-readable citation information is available in [CITATION.cff](CITATION.cff).
 
 ### Citation (BibTeX)
 
@@ -351,6 +352,17 @@ installed separately; they are not provided by these Python dependency files.
 
 **SlicerDDSurfer will be open-sourced soon** at
 [ChengjinLii/SlicerDDSurfer](https://github.com/ChengjinLii/SlicerDDSurfer).
+
+Surface OBJ files declare `SPACE=RAS` in their header for automatic coordinate
+selection in 3D Slicer. For older outputs without this declaration, select
+**RAS** in the Add Data options when loading the surfaces.
+
+---
+
+## License
+
+DDSurfer is released under the [MIT License](LICENSE). Third-party components
+and external tools remain subject to their respective licenses.
 
 ---
 

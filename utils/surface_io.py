@@ -34,6 +34,7 @@ def index_triangles(triangles):
 
 
 def write_obj(path, vertices, faces):
+    """Write scanner-RAS millimetre coordinates with an explicit Slicer header."""
     path = Path(path)
     if path.suffix.lower() != '.obj':
         raise ValueError('Surface outputs must use .obj')
@@ -46,7 +47,9 @@ def write_obj(path, vertices, faces):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f'.{path.stem}.{os.getpid()}.tmp.obj')
     try:
-        trimesh.Trimesh(vertices=vertices, faces=faces, process=False).export(temp)
+        # Slicer assumes LPS for unmarked OBJ files; declare RAS without changing geometry.
+        trimesh.Trimesh(vertices=vertices, faces=faces, process=False).export(
+            temp, header='DDSurfer surface. SPACE=RAS')
         stored = load_mesh(temp)
         if stored.vertices.shape != vertices.shape or not np.array_equal(stored.faces, faces):
             raise ValueError('OBJ export changed vertex indices or connectivity')

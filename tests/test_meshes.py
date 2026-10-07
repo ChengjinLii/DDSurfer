@@ -38,10 +38,22 @@ class MeshTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'mesh.obj'
             error = write_obj(path, mesh.vertices, mesh.faces)
+            self.assertEqual(path.read_text().splitlines()[0], '# DDSurfer surface. SPACE=RAS')
             stored = load_mesh(path)
             self.assertLess(error, 1e-8)
             np.testing.assert_array_equal(stored.faces, mesh.faces)
             np.testing.assert_allclose(stored.vertices, mesh.vertices, atol=1e-8, rtol=0)
+
+    def test_coordinate_header_does_not_change_obj_geometry_records(self):
+        mesh = trimesh.creation.icosphere(subdivisions=1)
+        mesh.vertices += [-60., -32., 8.]
+        original = mesh.export(file_type='obj')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'mesh.obj'
+            write_obj(path, mesh.vertices, mesh.faces)
+            geometry_lines = lambda text: [line for line in text.splitlines()
+                                           if line and not line.startswith('#')]
+            self.assertEqual(geometry_lines(path.read_text()), geometry_lines(original))
 
     def test_export_rejects_nonfinite_and_non_obj_output(self):
         with tempfile.TemporaryDirectory() as tmp:
