@@ -11,7 +11,7 @@
 [![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
 [![FreeSurfer](https://img.shields.io/badge/Optional-FreeSurfer-6A737D)](#optional-postprocessing)
 
-[Publication](#publication) | [Overview](#overview) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](#optional-postprocessing) | [Dependencies](#key-dependencies)
+[Publication](#publication) | [Overview](#overview) | [Installation](#installation) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](#optional-postprocessing) | [Dependencies](#key-dependencies)
 
 </div>
 
@@ -25,13 +25,13 @@ one workflow, with model weights loaded automatically from `weights/`.
 
 ## Publication
 
-DDSurfer has been accepted and published online in **Advanced Science**:
+DDSurfer is published in **Advanced Science**:
 
 > Chengjin Li, Wei Zhang, Xi Zhu, Yuqian Chen, Nir A. Sochen, Jarrett Rushmore,
 > Carl-Fredrik Westin, Yogesh Rathi, Lauren J. O'Donnell, Ofer Pasternak, and
 > Fan Zhang. ["DDSurfer: A Weakly-Supervised Dual-Stream Deep Learning Framework
 > for Cortical Surface Reconstruction From Diffusion MRI."](https://doi.org/10.1002/advs.76596)
-> *Advanced Science* (2026): e76596.
+> *Advanced Science* **13**(56), e76596 (2026).
 
 If you use DDSurfer in academic research, please cite our paper.
 Machine-readable citation information is available in [CITATION.cff](CITATION.cff).
@@ -48,6 +48,8 @@ Machine-readable citation information is available in [CITATION.cff](CITATION.cf
              for Cortical Surface Reconstruction From Diffusion MRI},
   journal = {Advanced Science},
   year    = {2026},
+  volume  = {13},
+  number  = {56},
   pages   = {e76596},
   doi     = {10.1002/advs.76596},
   url     = {https://doi.org/10.1002/advs.76596}
@@ -62,6 +64,22 @@ Machine-readable citation information is available in [CITATION.cff](CITATION.cf
 
 **DDSurfer at a glance.** Weak supervision, white and pial surface reconstruction,
 surface-based analysis and integration with 3D Slicer.
+
+---
+
+## Installation
+
+Clone the repository and enter the project directory:
+
+```bash
+git clone https://github.com/ChengjinLii/DDSurfer.git
+cd DDSurfer
+```
+
+The model weights are included in the repository. Set up the
+[Python environment](#python-environment) and install the required
+[external applications](#key-dependencies) before running the pipeline.
+Run the commands below from the repository root.
 
 ---
 
