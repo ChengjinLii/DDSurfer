@@ -8,22 +8,31 @@ import nibabel as nib
 import numpy as np
 
 
-def write_stats(subject_dir, hemi, atlas):
+FIELDS = ('area', 'area.pial', 'thickness', 'curv', 'white.K')
+
+
+def read_measurements(subject_dir, hemi):
     subject_dir = Path(subject_dir)
-    surf, label = subject_dir / 'surf', subject_dir / 'label'
+    cortex = nib.freesurfer.read_label(str(subject_dir / 'label' / f'{hemi}.cortex.label'))
+    fields = {field: nib.freesurfer.read_morph_data(str(subject_dir / 'surf' / f'{hemi}.{field}'))
+              for field in FIELDS}
+    return cortex, fields
+
+
+def write_stats(subject_dir, hemi, atlas, output=None, measurements=None):
+    subject_dir = Path(subject_dir)
+    label = subject_dir / 'label'
     indices, _, names = nib.freesurfer.read_annot(str(label / f'{hemi}.{atlas}.annot'))
     count = len(indices)
     cortex = np.zeros(count, dtype=bool)
-    cortex_indices = nib.freesurfer.read_label(str(label / f'{hemi}.cortex.label'))
+    cortex_indices, fields = read_measurements(subject_dir, hemi) if measurements is None else measurements
     if np.any(cortex_indices < 0) or np.any(cortex_indices >= count):
         raise ValueError('Cortex label contains invalid vertex indices')
     cortex[cortex_indices] = True
-    fields = {}
-    for field in ('area', 'area.pial', 'thickness', 'curv', 'white.K'):
-        data = nib.freesurfer.read_morph_data(str(surf / f'{hemi}.{field}'))
-        if len(data) != count or not np.isfinite(data).all():
+    for field in FIELDS:
+        data = fields[field]
+        if data.shape != (count,) or not np.isfinite(data).all():
             raise ValueError(f'Invalid {hemi}.{field} overlay')
-        fields[field] = data
     rows = []
     for index, name in enumerate(names):
         name = name.decode()
@@ -38,7 +47,7 @@ def write_stats(subject_dir, hemi, atlas):
                      float(np.abs(fields['curv'][mask]).mean()), float(np.abs(fields['white.K'][mask]).mean())))
     if not rows:
         raise ValueError('No annotated cortical vertices found')
-    output = subject_dir / 'stats' / f'{hemi}.{atlas}.stats'
+    output = Path(output) if output is not None else subject_dir / 'stats' / f'{hemi}.{atlas}.stats'
     output.parent.mkdir(parents=True, exist_ok=True)
     columns = (('StructName', 'NA'), ('NumVert', 'unitless'), ('SurfArea', 'mm^2'), ('PialArea', 'mm^2'),
                ('ThickAvg', 'mm'), ('ThickStd', 'mm'), ('MeanAbsCurv', 'mm^-1'), ('MeanAbsGaussCurv', 'mm^-2'))

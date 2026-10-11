@@ -11,7 +11,7 @@
 [![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
 [![FreeSurfer](https://img.shields.io/badge/Optional-FreeSurfer-6A737D)](#optional-postprocessing)
 
-[Publication](#publication) | [Overview](#overview) | [Installation](#installation) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](#optional-postprocessing) | [Dependencies](#key-dependencies)
+[Publication](#publication) | [Overview](#overview) | [Installation](#installation) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](postprocessing/README.md) | [Dependencies](#key-dependencies)
 
 </div>
 
@@ -286,50 +286,23 @@ file types and interpretation.
 
 ## Optional Postprocessing
 
-### Run with DDSurfer
-
-Postprocessing is **disabled by default**. Configure `FREESURFER_HOME` and
-`FS_LICENSE`, then add `--post-process`:
+**Plug-and-play surface analysis, disabled by default.** Configure FreeSurfer,
+its license and `fsaverage`, then enable it with:
 
 ```bash
 python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
 ```
 
-`--postprocess-hemi left` or `right` selects one hemisphere;
-`--postprocess-atlases aparc` selects one atlas. Otherwise both hemispheres
-and the `aparc,aparc.a2009s` atlases are processed.
+It also accepts four native white/pial surfaces from other reconstruction methods,
+without requiring DWI, DTI or structural MRI. Results include curvature, sulcal
+depth, thickness, area, cortical parcellations, regional statistics and fsaverage
+overlays. Python label export, shared input reads and overlay mapping, and
+verified stage reuse reduce repeated work while retaining FreeSurfer's core
+algorithms.
 
-### Use Your Own Surfaces
-
-**DDSurfer postprocessing is plug-and-play and can be used independently.**
-Its only required data inputs are four native cortical surfaces: left/right
-white and pial. They may be reconstructed by DDSurfer, FreeSurfer, FastSurfer
-or another method; DWI, DTI and structural MRI are not required. FreeSurfer,
-its license, and `fsaverage` must be configured.
-
-```bash
-bash postprocessing/run.sh --subject <subID> \
-  --lh-white ./outputs/<subID>/ddsurfer/lh.white.obj \
-  --lh-pial ./outputs/<subID>/ddsurfer/lh.pial.obj \
-  --rh-white ./outputs/<subID>/ddsurfer/rh.white.obj \
-  --rh-pial ./outputs/<subID>/ddsurfer/rh.pial.obj
-```
-
-The four surfaces must share native scanner-RAS millimetre coordinates.
-Each white/pial pair must preserve vertex correspondence and topology.
-Indexed OBJ/PLY/OFF, STL and FreeSurfer binary surfaces are supported.
-Paired STL inputs must preserve corresponding triangle order.
-No nearest-neighbour correspondence is guessed.
-
-### Postprocessing Results
-
-Postprocessing adds curvature, sulcal depth, thickness, surface area, inflated
-and spherical surfaces, cortical parcellations, regional statistics and
-`fsaverage` overlays. The directory layout is shown in [Outputs](#outputs).
-
-Without an MRI, the reference under `mri/` contains geometry only, not acquired
-or synthesized anatomical intensities. No segmentation-derived tissue volumes
-are reported. See [postprocessing usage](postprocessing/README.md) for details.
+See the **[postprocessing guide](postprocessing/README.md)** for the
+[workflow](postprocessing/README.md#workflow), standalone usage, supported inputs
+and [optimizations and measured benefits](postprocessing/README.md#optimizations-over-freesurfer).
 
 ---
 
@@ -363,6 +336,32 @@ python -m pip install -r requirements.txt
 
 Slicer/SlicerDMRI and optional FreeSurfer are external applications and must be
 installed separately; they are not provided by these Python dependency files.
+
+### Environment Check
+
+Check your active environment before processing any subjects:
+
+```bash
+python tests/check_environment.py
+```
+
+This checks Python imports and package versions, plus the Slicer/SlicerDMRI CLI
+files used by raw-DWI preprocessing. To check a CUDA GPU and optional FreeSurfer
+components as well:
+
+```bash
+python tests/check_environment.py --device cuda:0 --post-process --auto-mask
+```
+
+- Add `--precision bf16` to check BF16 support on the selected GPU; FP32 is the default.
+- FreeSurfer checks are optional. Set `FREESURFER_HOME` or pass `--freesurfer-home` when enabling them.
+- Use `--skip-slicer` only when you do not need to check raw-DWI preprocessing.
+
+Missing components are reported with installation commands, download links or
+configuration hints. Nothing is installed automatically, and no data processing
+or model inference runs. Exit status is `0` when requested checks pass (warnings
+may remain), and `1` when a required component fails. External-tool execution,
+license validity and available memory for a full inference run are not tested.
 
 ---
 

@@ -159,6 +159,12 @@ class PostprocessTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_bilateral_parallel_run_and_resume(self):
+        self.exercise_bilateral_run_and_resume(modern=True)
+
+    def test_legacy_metrics_run_and_resume_without_reloading_meshes(self):
+        self.exercise_bilateral_run_and_resume(modern=False)
+
+    def exercise_bilateral_run_and_resume(self, modern):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             home = root / 'fs'
@@ -169,8 +175,9 @@ class PostprocessTests(unittest.TestCase):
             (home / 'subjects/fsaverage/surf').mkdir()
             (home / 'license.txt').write_text('fixture')
             for binary in ('mris_curvature', 'mris_inflate', 'mris_sphere', 'mris_register', 'mris_thickness',
-                           'mri_label2label', 'mri_surf2surf', 'mri_annotation2label', 'mris_anatomical_stats',
-                           'mris_convert', 'mris_place_surface'):
+                           'mri_label2label', 'mri_surf2surf', 'mris_place_surface'):
+                if binary == 'mris_place_surface' and not modern:
+                    continue
                 path = home / 'bin' / binary
                 path.write_text('#!/bin/sh\nexit 0\n'); path.chmod(0o755)
             native = root / 'native/x'
@@ -184,6 +191,7 @@ class PostprocessTests(unittest.TestCase):
                                           np.ones(vertices_count, dtype=int),
                                           np.array([[0, 0, 0, 0], [10, 20, 30, 0], [40, 50, 60, 0]]),
                                           [b'unknown', b'roi', b'corpuscallosum'])
+                shutil.copyfile(labels / f'{hemi}.aparc.annot', labels / f'{hemi}.aparc.a2009s.annot')
                 for kind, radius in (('wm', 2.), ('pial', 3.)):
                     mesh = trimesh.creation.icosphere(subdivisions=1, radius=radius)
                     mesh.vertices += 10.
@@ -191,7 +199,7 @@ class PostprocessTests(unittest.TestCase):
             brain = root / 'b0.nii.gz'
             nib.save(nib.Nifti1Image(np.ones((20, 20, 20), np.float32), np.eye(4)), brain)
             args = parse_args(['--subject', 'x', '--native-root', str(root / 'native'), '--brain-source', str(brain),
-                               '--output-root', str(root / 'output'), '--freesurfer-home', str(home), '--atlases', 'aparc'])
+                               '--output-root', str(root / 'output'), '--freesurfer-home', str(home)])
             lock = Lock()
             activity = [0, 0]
             thickness_value = [1.]
@@ -209,6 +217,9 @@ class PostprocessTests(unittest.TestCase):
                 elif tool == 'mris_place_surface':
                     value = thickness_value[0] if command[-1].endswith('.thickness') else 1.
                     nib.freesurfer.write_morph_data(command[-1], np.full(vertices_count, value))
+                elif tool == 'mris_thickness':
+                    out = Path(kwargs['cwd']) / 'surf' / f'{command[2]}.thickness'
+                    nib.freesurfer.write_morph_data(str(out), np.full(vertices_count, thickness_value[0]))
                 elif tool in ('mris_inflate', 'mris_sphere', 'mris_register'):
                     shutil.copyfile(command[-2] if tool != 'mris_register' else command[-3], command[-1])
                     if tool == 'mris_inflate':
@@ -221,17 +232,13 @@ class PostprocessTests(unittest.TestCase):
                     if '--sval-annot' in command:
                         shutil.copyfile(command[command.index('--sval-annot') + 1], out)
                     else:
-                        out.write_text('overlay fixture')
-                elif tool == 'mri_annotation2label':
-                    hemi = command[command.index('--hemi') + 1]
-                    (Path(command[-1]) / f'{hemi}.roi.label').write_text('fixture')
-                elif Path(command[1]).name == 'stats.py':
-                    rows = write_stats(command[command.index('--subject-dir') + 1],
-                                       command[command.index('--hemi') + 1], command[-1])
-                    self.assertEqual(rows[0][0], 'roi')
-                    self.assertEqual(rows[0][1], 42)
-                    self.assertEqual(rows[0][2], 42.)
-                    self.assertEqual(rows[0][4], thickness_value[0])
+                        source = nib.MGHImage.from_bytes(Path(command[command.index('--sval') + 1]).read_bytes())
+                        self.assertEqual(source.shape, (vertices_count, 1, 1, 4))
+                        self.assertIn('--split', command)
+                        for frame in range(4):
+                            path = out.with_name(f'{out.stem}{frame:04d}{out.suffix}')
+                            nib.save(nib.MGHImage(np.asarray(source.dataobj)[..., frame], source.affine,
+                                                 source.header.copy()), str(path))
                 else:
                     self.fail(tool)
                 with lock:
@@ -239,15 +246,43 @@ class PostprocessTests(unittest.TestCase):
 
             with patch.dict(os.environ, FS_LICENSE=str(home / 'license.txt')):
                 with patch('postprocessing.pipeline.subprocess.run', side_effect=mock_command) as process:
-                    run_postprocess(args)
+                    with patch('nibabel.freesurfer.read_morph_data', wraps=nib.freesurfer.read_morph_data) as read_maps:
+                        run_postprocess(args)
+                        self.assertEqual(read_maps.call_count, 12)
+                        self.assertEqual(len({call.args[0] for call in read_maps.call_args_list}), 12)
                     self.assertEqual(activity[1], 2)
-                    self.assertGreater(process.call_count, 20)
+                    self.assertGreater(process.call_count, 18)
+                    if not modern:
+                        for hemi in ('lh', 'rh'):
+                            surf = root / 'output/x/surf'
+                            self.assertEqual((surf / f'{hemi}.curv').read_bytes(), (surf / f'{hemi}.white.H').read_bytes())
+                            self.assertEqual((surf / f'{hemi}.curv.pial').read_bytes(), (surf / f'{hemi}.pial.H').read_bytes())
                     unchanged = {path: path.stat().st_mtime_ns for subdir in ('mri', 'surf')
                                  for path in (root / 'output/x' / subdir).iterdir() if path.is_file()}
                     process.reset_mock()
-                    run_postprocess(args)
+                    with patch('postprocessing.pipeline.load_pair', wraps=load_pair) as read_pairs:
+                        run_postprocess(args)
+                        read_pairs.assert_not_called()
                     process.assert_not_called()
                     self.assertEqual(unchanged, {path: path.stat().st_mtime_ns for path in unchanged})
+                    for hemi in ('lh', 'rh'):
+                        rows = write_stats(root / 'output/x', hemi, 'aparc')
+                        self.assertEqual(rows[0][:2], ('roi', 42))
+                        expected_area = 42. if modern else trimesh.creation.icosphere(subdivisions=1, radius=2.).area
+                        self.assertAlmostEqual(rows[0][2], expected_area, places=4)
+                        self.assertEqual(rows[0][4], thickness_value[0])
+                        label_path = root / 'output/x/label' / f'{hemi}.aparc' / f'{hemi}.roi.label'
+                        np.testing.assert_array_equal(nib.freesurfer.read_label(str(label_path)), np.arange(42))
+                    label_path.unlink()
+                    run_postprocess(args)
+                    process.assert_not_called()
+                    overlay_path = root / 'output/x/fsaverage/lh.curv.mgh'
+                    overlay_bytes = overlay_path.read_bytes()
+                    overlay_path.unlink()
+                    run_postprocess(args)
+                    self.assertEqual(process.call_count, 1)
+                    self.assertEqual(overlay_bytes, overlay_path.read_bytes())
+                    process.reset_mock()
                     thickness_path = root / 'output/x/surf/lh.thickness'
                     thickness_path.write_text('corrupted')
                     with patch('postprocessing.pipeline.subprocess.run'):
@@ -261,7 +296,7 @@ class PostprocessTests(unittest.TestCase):
                     thickness_value[0] = 2.
                     thickness_path.unlink()
                     run_postprocess(args)
-                    self.assertEqual(process.call_count, 3)
+                    self.assertEqual(process.call_count, 2)
                     explicit = parse_args(['--subject', 'x', '--output-root', str(root / 'surface-only'),
                                            '--freesurfer-home', str(home), '--atlases', 'aparc'] +
                                           [value for hemi in ('lh', 'rh') for kind, source in (('white', 'wm'), ('pial', 'pial'))

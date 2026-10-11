@@ -14,7 +14,7 @@ def check_environment(home, hemisphere='both', atlas_names='aparc,aparc.a2009s')
     modern = os.access(str(home / 'bin/mris_place_surface'), os.X_OK)
     metric = 'mris_place_surface' if modern else 'mris_thickness'
     names = ('mris_curvature', 'mris_inflate', 'mris_sphere', 'mris_register', metric,
-             'mri_label2label', 'mri_surf2surf', 'mri_annotation2label')
+             'mri_label2label', 'mri_surf2surf')
     binaries = [home / 'bin' / name for name in names]
     for binary in binaries:
         if not binary.is_file() or not os.access(binary, os.X_OK):
