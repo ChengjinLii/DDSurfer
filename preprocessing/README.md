@@ -2,7 +2,7 @@
 
 **From corrected diffusion MRI to surface-inference inputs.**
 
-[DDSurfer](../README.md) | [Run](#run) | [Brain Masking](#optional-brain-masking) | [Outputs](#outputs)
+[DDSurfer](../README.md) | [Run](#run) | [Brain Masking](#optional-brain-masking) | [Outputs](#outputs) | [中文](README.zh-CN.md)
 
 The main DDSurfer pipeline runs this stage automatically. `run.sh` estimates
 DTI through `dti.sh`, then prepares the registered volumes for inference.

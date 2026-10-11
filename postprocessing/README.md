@@ -2,7 +2,7 @@
 
 **Plug-and-play morphometry and cortical parcellation from four surfaces.**
 
-[DDSurfer](../README.md) | [Workflow](#workflow) | [Run](#run) | [Surface Requirements](#surface-requirements) | [Outputs](#outputs) | [Optimizations](#optimizations-over-freesurfer)
+[DDSurfer](../README.md) | [Workflow](#workflow) | [Run](#run) | [Surface Requirements](#surface-requirements) | [Outputs](#outputs) | [Optimizations](#optimizations-over-freesurfer) | [中文](README.zh-CN.md)
 
 Use surfaces from DDSurfer or another reconstruction method. DWI, DTI and
 structural MRI are not required. The main pipeline disables postprocessing by

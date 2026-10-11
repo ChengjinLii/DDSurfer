@@ -2,7 +2,7 @@
 
 **Standalone format-conversion and translation helpers.**
 
-[DDSurfer](../README.md) | [Postprocessing](../postprocessing/README.md)
+[DDSurfer](../README.md) | [Postprocessing](../postprocessing/README.md) | [中文](README.zh-CN.md)
 
 These tools are not part of the main inference pipeline, which writes OBJ
 surfaces directly.

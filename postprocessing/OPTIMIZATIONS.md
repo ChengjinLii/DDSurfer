@@ -2,7 +2,7 @@
 
 **Less repeated work, with the surface geometry and measurement definitions preserved.**
 
-[Usage](README.md) | [Python Replacements](#python-replacements) | [Retained Algorithms](#retained-algorithms) | [Validation](#validation)
+[Usage](README.md) | [Python Replacements](#python-replacements) | [Retained Algorithms](#retained-algorithms) | [Validation](#validation) | [中文](OPTIMIZATIONS.zh-CN.md)
 
 ---
 
