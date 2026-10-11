@@ -354,6 +354,10 @@ python -m pip install -r requirements.txt
 Slicer/SlicerDMRI 和可选的 FreeSurfer 是独立的外部应用，需另行安装，
 上述 Python 依赖文件不会安装这些应用。
 
+可选训练辅助模块 [`utils/loss.py`](utils/loss.py) 提供原版的单向 Chamfer 边界损失。
+使用时需单独安装 [与当前环境兼容的 PyTorch3D](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md)；
+推理主流程不导入该模块，也不依赖 PyTorch3D。
+
 <a id="environment-check"></a>
 
 ### 环境检查

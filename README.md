@@ -337,6 +337,11 @@ python -m pip install -r requirements.txt
 Slicer/SlicerDMRI and optional FreeSurfer are external applications and must be
 installed separately; they are not provided by these Python dependency files.
 
+The optional training helper [`utils/loss.py`](utils/loss.py) provides the original
+single-directional Chamfer boundary loss. It requires a separately installed,
+[compatible PyTorch3D build](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md);
+the inference pipeline does not import it or require PyTorch3D.
+
 ### Environment Check
 
 Check your active environment before processing any subjects:
