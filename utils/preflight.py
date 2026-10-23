@@ -136,11 +136,13 @@ def inspect_run(args, files):
         'preprocess_jobs', 'auto_mask', 'mask_threads', 'freesurfer')}
     tools = slicer_files(required=False)
     if args.freesurfer:
-        from postprocessing.environment import check_environment
-        environment = check_environment(args.freesurfer_home, args.postprocess_hemi, args.postprocess_atlases)
+        from postprocessing.environment import check_environment, configured_home
+        environment = check_environment(configured_home(args), args.postprocess_hemi,
+                                        args.postprocess_atlases, backend=args.postprocess_backend)
         tools += environment['files']
         settings.update({name: getattr(args, name) for name in (
-            'postprocess_hemi', 'postprocess_atlases', 'postprocess_threads', 'postprocess_serial')})
+            'postprocess_hemi', 'postprocess_atlases', 'postprocess_threads', 'postprocess_serial',
+            'postprocess_sphere_seed', 'postprocess_backend')})
         if args.brain_source is not None:
             from postprocessing.geometry import volume_files
             inputs['brain_source'] = [dict(path=str(path), sha256=file_digest(path))
@@ -214,5 +216,6 @@ def check_runtime(args, files, inspection):
             if home:
                 file_digest(Path(home) / 'models/synthstrip.1.pt')
     if args.freesurfer:
-        from postprocessing.environment import check_environment
-        check_environment(args.freesurfer_home, args.postprocess_hemi, args.postprocess_atlases)
+        from postprocessing.environment import check_environment, configured_home
+        check_environment(configured_home(args), args.postprocess_hemi, args.postprocess_atlases,
+                          backend=args.postprocess_backend)

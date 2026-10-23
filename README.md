@@ -9,7 +9,7 @@
 [![NumPy](https://img.shields.io/badge/Numerics-NumPy-013243?logo=numpy&logoColor=white)](#key-dependencies)
 [![SimpleITK](https://img.shields.io/badge/Imaging-SimpleITK-0098A9)](#key-dependencies)
 [![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
-[![FreeSurfer](https://img.shields.io/badge/Optional-FreeSurfer-6A737D)](#optional-postprocessing)
+[![Postprocessing](https://img.shields.io/badge/Postprocessing-Native_C%2B%2B-6A737D)](#optional-postprocessing)
 
 [Publication](#publication) | [Overview](#overview) | [Installation](#installation) | [Run DDSurfer](#run-ddsurfer) | [Postprocessing](#optional-postprocessing) | [Dependencies](#key-dependencies) | [中文](README.zh-CN.md)
 
@@ -147,7 +147,8 @@ Default paths:
 | `--max-gpu-gib 24` | GPU allocation budget for inference in GiB; default: 24. |
 | `--auto-mask` | Generate a missing brain mask with FreeSurfer SynthStrip; default: off. |
 | `--preprocess-jobs 2` | Run independent DTI stages concurrently; default: 1. |
-| `--post-process` | Enable optional FreeSurfer postprocessing; default: off. |
+| `--post-process` | Use source-built or installed FreeSurfer surface tools; default: off. |
+| `--postprocess-backend` | Select `auto` (default), `native` or `freesurfer`. |
 | `--keep-cache` | Retain intermediate files and detailed stage logs. |
 | `--resume` | Reuse completed, checksum-verified results, even after cache cleanup. |
 
@@ -286,23 +287,40 @@ file types and interpretation.
 
 ## Optional Postprocessing
 
-**Plug-and-play surface analysis, disabled by default.** Configure FreeSurfer,
-its license and `fsaverage`, then enable it with:
+**Plug-and-play surface analysis, disabled by default.** Choose locally compiled
+components or an existing FreeSurfer installation. No precompiled executable
+package is shipped.
+
+For the local-source route, [prepare the build tools](postprocessing/core/README.md#build-once),
+compile once, then run:
 
 ```bash
-python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
+python -m postprocessing.core.build --jobs 4
+export FS_LICENSE=/path/to/license.txt
+python3 run_ddsurfer_pipeline.py --subject <subID> --post-process \
+  --postprocess-backend native
 ```
 
-It also accepts four native white/pial surfaces from other reconstruction methods,
-without requiring DWI, DTI or structural MRI. Results include curvature, sulcal
-depth, thickness, area, cortical parcellations, regional statistics and fsaverage
-overlays. Python label export, shared input reads and overlay mapping, and
-verified stage reuse reduce repeated work while retaining FreeSurfer's core
-algorithms.
+If FreeSurfer is already installed, use it directly instead:
+
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --post-process \
+  --postprocess-backend freesurfer --freesurfer-home /path/to/freesurfer
+```
+
+The default `auto` backend uses a configured FreeSurfer installation, otherwise
+completed local components. Normal runs never download or compile source.
+Local builds are being validated on Linux; macOS is unverified and native
+Windows is unsupported. Both routes retain the original surface algorithms and
+require a valid FreeSurfer license.
+
+Postprocessing also accepts four native white/pial surfaces from other methods,
+without DWI, DTI or structural MRI. Outputs include curvature, sulcal depth,
+thickness, area, cortical parcellations, regional statistics and fsaverage overlays.
 
 See the **[postprocessing guide](postprocessing/README.md)** for the
-[workflow](postprocessing/README.md#workflow), standalone usage, supported inputs
-and [optimizations and measured benefits](postprocessing/README.md#optimizations-over-freesurfer).
+[workflow](postprocessing/README.md#workflow), independent use and
+[optimizations](postprocessing/README.md#optimizations-over-freesurfer).
 
 ---
 
@@ -314,7 +332,9 @@ and [optimizations and measured benefits](postprocessing/README.md#optimizations
 | PyTorch, torchvision | Surface inference | Required; CUDA optional |
 | NumPy, SciPy, SimpleITK, nibabel, trimesh, pynrrd | Image and surface processing | Required |
 | Slicer with SlicerDMRI | Raw-DWI processing | Set `SLICER_PATH` or put `Slicer` on `PATH` |
-| FreeSurfer | Optional masking and surface postprocessing | `mri_synthstrip` for masking; license and `fsaverage` for postprocessing |
+| Native surface tools | Optional postprocessing | Build locally or use an existing FreeSurfer installation; valid license required |
+| C/C++ compiler, Git, CMake >=3.24,<4 | Local-source setup only | Not required when using an existing FreeSurfer installation |
+| FreeSurfer SynthStrip | Optional brain masking | Separate setup; not included in the surface runtime |
 
 ### Python Environment
 
@@ -334,8 +354,9 @@ Alternatively, install into an existing compatible Python environment:
 python -m pip install -r requirements.txt
 ```
 
-Slicer/SlicerDMRI and optional FreeSurfer are external applications and must be
-installed separately; they are not provided by these Python dependency files.
+Slicer/SlicerDMRI and optional SynthStrip must be configured separately; they are
+not provided by these Python dependency files. Surface postprocessing uses
+locally compiled components or a configured FreeSurfer installation.
 
 The optional training helper [`utils/loss.py`](utils/loss.py) provides the original
 single-directional Chamfer boundary loss. It requires a separately installed,
@@ -359,14 +380,17 @@ python tests/check_environment.py --device cuda:0 --post-process --auto-mask
 ```
 
 - Add `--precision bf16` to check BF16 support on the selected GPU; FP32 is the default.
-- FreeSurfer checks are optional. Set `FREESURFER_HOME` or pass `--freesurfer-home` when enabling them.
+- Select the local-source or installed-FreeSurfer route with `--postprocess-backend`; configure its license.
+- `--auto-mask` separately checks SynthStrip through `FREESURFER_HOME` or `--freesurfer-home`.
 - Use `--skip-slicer` only when you do not need to check raw-DWI preprocessing.
 
 Missing components are reported with installation commands, download links or
-configuration hints. Nothing is installed automatically, and no data processing
-or model inference runs. Exit status is `0` when requested checks pass (warnings
-may remain), and `1` when a required component fails. External-tool execution,
-license validity and available memory for a full inference run are not tested.
+configuration hints. No packages are downloaded or installed, and no data processing
+or model inference runs. Missing local components are reported with the build
+command; no compilation is triggered. Exit status is `0` when requested checks pass (warnings
+may remain), and `1` when a required component fails. Native-library dependencies
+are checked with `ldd`; processing commands, license validity and available
+memory for a full inference run are not tested.
 
 ---
 
@@ -384,7 +408,9 @@ selection in 3D Slicer. For older outputs without this declaration, select
 ## License
 
 DDSurfer is released under the [MIT License](LICENSE). Third-party components
-and external tools remain subject to their respective licenses.
+and external tools remain subject to their respective licenses. The reused
+native source and atlas data retain the [FreeSurfer license](postprocessing/assets/LICENSE.txt)
+and their third-party notices.
 
 ---
 

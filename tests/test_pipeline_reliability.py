@@ -182,8 +182,10 @@ class PreflightTests(unittest.TestCase):
             check_runtime(args, {'mask': Path('mask')}, inspection)
             fs.assert_not_called(); mask.assert_not_called()
         args.freesurfer = True
-        with self.assertRaisesRegex(ValueError, 'FREESURFER_HOME'):
-            check_runtime(args, None, inspection)
+        with patch('postprocessing.environment.check_environment', side_effect=FileNotFoundError('Set FS_LICENSE')) as fs:
+            with self.assertRaisesRegex(FileNotFoundError, 'FS_LICENSE'):
+                check_runtime(args, None, inspection)
+            fs.assert_called_once_with(args.freesurfer_home, args.postprocess_hemi, args.postprocess_atlases, backend='auto')
         args.freesurfer = False
         with patch('utils.preflight.slicer_files'), patch('preprocessing.brain_mask.synthstrip_environment',
                                                           side_effect=FileNotFoundError('missing synthstrip')):

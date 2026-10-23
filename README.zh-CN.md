@@ -9,7 +9,7 @@
 [![NumPy](https://img.shields.io/badge/Numerics-NumPy-013243?logo=numpy&logoColor=white)](#key-dependencies)
 [![SimpleITK](https://img.shields.io/badge/Imaging-SimpleITK-0098A9)](#key-dependencies)
 [![SlicerDMRI](https://img.shields.io/badge/Preprocessing-SlicerDMRI-4D7EB3)](#key-dependencies)
-[![FreeSurfer](https://img.shields.io/badge/Optional-FreeSurfer-6A737D)](#optional-postprocessing)
+[![Postprocessing](https://img.shields.io/badge/Postprocessing-Native_C%2B%2B-6A737D)](#optional-postprocessing)
 
 [论文](#publication) | [方法概览](#overview) | [安装](#installation) | [运行 DDSurfer](#run-ddsurfer) | [后处理](#optional-postprocessing) | [依赖配置](#key-dependencies) | [English](README.md)
 
@@ -159,7 +159,8 @@ python3 run_ddsurfer_pipeline.py --subject <subID> \
 | `--max-gpu-gib 24` | 推理阶段的显存分配预算，单位 GiB，默认 24。 |
 | `--auto-mask` | 使用 FreeSurfer SynthStrip 生成缺失的脑掩膜，默认关闭。 |
 | `--preprocess-jobs 2` | 并行运行相互独立的 DTI 处理阶段，默认并发数为 1。 |
-| `--post-process` | 启用可选的 FreeSurfer 后处理，默认关闭。 |
+| `--post-process` | 使用本机编译组件或已有 FreeSurfer 进行皮层后处理，默认关闭。 |
+| `--postprocess-backend` | 选择 `auto`（默认）、`native` 或 `freesurfer`。 |
 | `--keep-cache` | 保留中间文件及各阶段的详细日志。 |
 | `--resume` | 复用已完成且通过校验和验证的最终结果，即使中间缓存已被清理。 |
 
@@ -301,21 +302,35 @@ outputs/<subID>/
 
 ## 可选后处理
 
-**即插即用的皮层表面分析流程，默认关闭。** 配置 FreeSurfer、许可证和 `fsaverage` 后即可启用：
+**即插即用的皮层表面分析流程，默认关闭。** 可选择本机源码编译组件，或直接使用已有的
+FreeSurfer 安装；项目不再附带预编译的可执行程序。
+
+本机编译方式先[准备构建工具](postprocessing/core/README.zh-CN.md#首次编译)，只需编译一次：
 
 ```bash
-python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
+python -m postprocessing.core.build --jobs 4
+export FS_LICENSE=/path/to/license.txt
+python3 run_ddsurfer_pipeline.py --subject <subID> --post-process \
+  --postprocess-backend native
 ```
 
-后处理也可独立接收其他重建方法生成的四份原生空间白质与软脑膜表面，
-无需 DWI、DTI 或结构 MRI。结果包括曲率、沟深、厚度、面积、皮层分区、脑区统计，
-以及映射到 fsaverage 的表面标量数据。
-通过 Python 标签导出、共享数据读取与映射，以及经验证的阶段复用，
-减少重复工作，同时保留 FreeSurfer 的核心算法。
+如果本机已经安装 FreeSurfer，也可直接沿用：
 
-详见**[后处理使用指南](postprocessing/README.zh-CN.md)**，其中介绍了
-[处理流程](postprocessing/README.zh-CN.md#workflow)、独立运行方式、输入要求，
-以及 [优化措施与实测收益](postprocessing/README.zh-CN.md#optimizations-over-freesurfer)。
+```bash
+python3 run_ddsurfer_pipeline.py --subject <subID> --post-process \
+  --postprocess-backend freesurfer --freesurfer-home /path/to/freesurfer
+```
+
+默认 `auto` 优先使用已配置的 FreeSurfer，否则使用已经编译好的本机组件。
+普通运行不会自行下载或编译源码。本机编译目前以 Linux 为验证平台；macOS 尚未验证，
+原生 Windows 不受支持。两条路径均保留原始皮层算法，并需要有效的 FreeSurfer 许可证。
+
+后处理也可独立接收其他方法生成的四份原生空间白质与软脑膜表面，无需 DWI、DTI 或结构 MRI。
+结果包括曲率、沟深、厚度、面积、皮层分区、脑区统计及 fsaverage 表面标量数据。
+
+详见**[后处理使用指南](postprocessing/README.zh-CN.md)**中的
+[处理流程](postprocessing/README.zh-CN.md#workflow)、独立使用方法和
+[优化措施](postprocessing/README.zh-CN.md#optimizations-over-freesurfer)。
 
 ---
 
@@ -329,7 +344,9 @@ python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
 | PyTorch、torchvision | 表面推理 | 必需；CUDA 可选。 |
 | NumPy、SciPy、SimpleITK、nibabel、trimesh、pynrrd | 图像与表面处理 | 必需。 |
 | Slicer 及 SlicerDMRI | 原始 DWI 处理 | 设置 `SLICER_PATH`，或将 `Slicer` 加入 `PATH`。 |
-| FreeSurfer | 可选脑掩膜生成与表面后处理 | 脑掩膜生成需要 `mri_synthstrip`；后处理还需许可证和 `fsaverage`。 |
+| 原生皮层处理组件 | 可选后处理 | 本机编译或使用已有 FreeSurfer；需要有效许可证。 |
+| C/C++ 编译器、Git、CMake >=3.24,<4 | 仅用于本机源码构建 | 使用已有 FreeSurfer 时不需要这些构建工具。 |
+| FreeSurfer SynthStrip | 可选脑掩膜生成 | 需要单独配置，不包含在皮层后处理运行包中。 |
 
 <a id="python-environment"></a>
 
@@ -351,8 +368,9 @@ conda activate ddsurfer
 python -m pip install -r requirements.txt
 ```
 
-Slicer/SlicerDMRI 和可选的 FreeSurfer 是独立的外部应用，需另行安装，
+Slicer/SlicerDMRI 和可选的 SynthStrip 需单独配置，
 上述 Python 依赖文件不会安装这些应用。
+皮层后处理可以使用本机编译组件，也兼容已配置的 FreeSurfer 安装。
 
 可选训练辅助模块 [`utils/loss.py`](utils/loss.py) 提供原版的单向 Chamfer 边界损失。
 使用时需单独安装 [与当前环境兼容的 PyTorch3D](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md)；
@@ -376,13 +394,15 @@ python tests/check_environment.py --device cuda:0 --post-process --auto-mask
 ```
 
 - 添加 `--precision bf16` 可检查所选 GPU 的 BF16 支持；默认精度为 FP32。
-- FreeSurfer 检查为可选项。启用时需设置 `FREESURFER_HOME`，或传入 `--freesurfer-home`。
+- 后处理可通过 `--postprocess-backend` 选择本机编译或已有安装，并检查对应的许可证。
+- `--auto-mask` 则单独通过 `FREESURFER_HOME` 或 `--freesurfer-home` 检查 SynthStrip。
 - 仅在不需要检查原始 DWI 预处理环境时，才使用 `--skip-slicer`。
 
 缺少组件时，脚本会给出安装命令、下载链接或配置提示，不会自动安装，
-也不会执行数据处理或模型推理。
+也不会执行数据处理或模型推理。缺少本机组件时仅提示编译指令，不会自行启动构建。
 请求的检查没有失败时，退出状态为 `0`，但仍可能存在警告；必需组件检查失败时为 `1`。
-此检查不实际执行外部工具，不验证许可证是否有效，也不判断可用内存或显存是否足以完成整次推理。
+原生库依赖通过 `ldd` 检查；不会运行数据处理命令，不验证许可证是否有效，
+也不判断可用内存或显存是否足以完成整次推理。
 
 ---
 
@@ -403,6 +423,8 @@ python tests/check_environment.py --device cuda:0 --post-process --auto-mask
 ## 许可证
 
 DDSurfer 使用 [MIT 许可证](LICENSE)。第三方组件和外部工具仍遵循各自的许可证。
+复用的原生源码及图谱保留 [FreeSurfer 许可证](postprocessing/assets/LICENSE.txt)
+及各自的第三方许可声明。
 
 ---
 

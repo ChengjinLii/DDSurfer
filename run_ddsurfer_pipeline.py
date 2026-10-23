@@ -157,12 +157,17 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--template-dir', type=Path, default=PROJECT_ROOT / 'template')
     parser.add_argument('--save-debug', action='store_true', help='Save crop-coordinate predictions in cache; use --keep-cache to retain.')
     parser.add_argument('--post-process', '--freesurfer', dest='freesurfer', action='store_true',
-                        help='Enable FreeSurfer surface postprocessing (disabled by default).')
+                        help='Enable surface postprocessing using a local build or FreeSurfer (disabled by default).')
     parser.add_argument('--keep-cache', action='store_true',
                         help='Keep DTI, preprocessed volumes and MNI meshes; otherwise remove after success.')
     parser.add_argument('--resume', action='store_true',
                         help='Reuse completed results only when inputs, models, settings and output checksums match.')
     parser.add_argument('--freesurfer-home', type=Path, default=os.environ.get('FREESURFER_HOME'))
+    parser.add_argument('--postprocess-runtime', type=Path,
+                        help='Use a locally compiled surface runtime.')
+    parser.add_argument('--postprocess-backend', choices=('auto', 'native', 'freesurfer'), default='auto',
+                        help='Auto uses a configured FreeSurfer installation, otherwise the local source build.')
+    parser.add_argument('--postprocess-sphere-seed', type=int, help='Optional positive seed for sphere reproducibility.')
     parser.add_argument('--postprocess-hemi', choices=('left', 'right', 'both'), default='both')
     parser.add_argument('--postprocess-atlases', default='aparc,aparc.a2009s')
     parser.add_argument('--brain-source', type=Path, help='Native-space MRI; defaults to the native b0 from DTI estimation.')
@@ -295,12 +300,16 @@ def build_freesurfer_command(args: argparse.Namespace) -> List[str]:
                '--brain-source', str(native_reference(args)),
                '--output-root', str(args.output_root),
                '--hemi', args.postprocess_hemi, '--atlases', args.postprocess_atlases,
-               '--threads', str(args.postprocess_threads)]
+               '--threads', str(args.postprocess_threads), '--backend', args.postprocess_backend]
     for hemi in ('lh', 'rh'):
         for kind in ('white', 'pial'):
             command += [f'--{hemi}-{kind}', str(subject_directory(args) / 'ddsurfer' / f'{hemi}.{kind}.obj')]
     if args.freesurfer_home is not None:
         command += ['--freesurfer-home', str(args.freesurfer_home)]
+    if args.postprocess_runtime is not None:
+        command += ['--runtime', str(args.postprocess_runtime)]
+    if args.postprocess_sphere_seed is not None:
+        command += ['--sphere-seed', str(args.postprocess_sphere_seed)]
     if args.postprocess_serial:
         command += ['--serial']
     return command
@@ -368,8 +377,10 @@ def main(argv: Iterable[str] | None = None) -> None:
     if args.freesurfer:
         if args.predict_mode != 'all':
             raise ValueError('FreeSurfer postprocessing requires white and pial surfaces (--predict-mode all)')
-        if args.freesurfer_home is None:
-            raise ValueError('Set FREESURFER_HOME or pass --freesurfer-home')
+        if args.postprocess_sphere_seed is not None and not 0 < args.postprocess_sphere_seed < 2 ** 31:
+            raise ValueError('--postprocess-sphere-seed must be a positive 32-bit integer')
+        if args.postprocess_runtime is not None and not (args.postprocess_runtime / 'runtime.json').is_file():
+            raise ValueError('--postprocess-runtime requires a local build with a runtime.json manifest')
 
     files = None
     if not args.skip_preprocessing:

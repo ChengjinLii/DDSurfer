@@ -156,12 +156,34 @@ class EnvironmentCheckTests(unittest.TestCase):
         self.assertEqual(self.report.finish(), 0)
 
     def test_missing_requested_freesurfer_has_setup_commands(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('postprocessing.environment.check_environment', side_effect=FileNotFoundError('Set FS_LICENSE')):
             diagnostic.check_freesurfer(self.report, diagnostic.parse_args(['--post-process', '--auto-mask']))
         self.assertEqual(self.report.counts['FAIL'], 2)
         self.assertEqual(self.report.finish(), 1)
         self.assertIn('export FREESURFER_HOME=', self.output.getvalue())
         self.assertIn('SetUpFreeSurfer.sh', self.output.getvalue())
+
+    def test_local_build_needs_no_configured_full_installation(self):
+        environment = dict(home=Path('cache/runtime'), license_file=Path('private/license.txt'), minimal_runtime=True)
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('postprocessing.environment.check_environment', return_value=environment) as check:
+            diagnostic.check_freesurfer(self.report, diagnostic.parse_args(['--post-process']))
+        check.assert_called_once_with(None, 'both', 'aparc,aparc.a2009s', backend='auto')
+        self.assertEqual(self.report.finish(), 0)
+        self.assertIn('no full installation needed', self.output.getvalue())
+
+    def test_explicit_postprocessing_runtime_does_not_replace_synthstrip_home(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            home = make_freesurfer(Path(tmp))
+            runtime = Path(tmp) / 'runtime'
+            environment = dict(home=runtime, license_file=home / 'license.txt', minimal_runtime=True)
+            args = diagnostic.parse_args(['--post-process', '--auto-mask', '--freesurfer-home', str(home),
+                                          '--postprocess-runtime', str(runtime)])
+            with patch('postprocessing.environment.check_environment', return_value=environment) as check:
+                diagnostic.check_freesurfer(self.report, args)
+            check.assert_called_once_with(runtime, 'both', 'aparc,aparc.a2009s', backend='auto')
+            self.assertEqual(self.report.finish(), 0)
 
     def test_missing_slicer_has_configuration_hints(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(diagnostic.shutil, 'which', return_value=None):

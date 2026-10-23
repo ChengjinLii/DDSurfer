@@ -31,6 +31,11 @@ FS_LICENSE = (
     'Request a license: https://surfer.nmr.mgh.harvard.edu/registration.html',
     'export FS_LICENSE="/path/to/license.txt"',
 )
+POSTPROCESS_INSTALL = (
+    'Compile the native components locally: python -m postprocessing.core.build --jobs 4',
+    'Or select an existing installation with --postprocess-backend freesurfer --freesurfer-home /path/to/freesurfer',
+    'Set FS_LICENSE="/path/to/license.txt"; see postprocessing/README.md.',
+)
 
 
 class Report:
@@ -55,7 +60,7 @@ class Report:
         print('\nSummary: ' + ', '.join(f'{self.counts[s]} {s}' for s in
                                        ('OK', 'WARN', 'FAIL', 'SKIP')), file=self.stream)
         print('No data processing, model inference or installation was performed. '
-              'External-tool execution, license validity and workload memory are not tested.',
+              'Processing commands, license validity and workload memory are not tested.',
               file=self.stream)
         return 1 if self.counts['FAIL'] else 0
 
@@ -216,15 +221,19 @@ def check_freesurfer(report, args):
     if not args.post_process:
         report.add('SKIP', 'FreeSurfer postprocessing', 'Optional; check with --post-process')
         return
-    from postprocessing.environment import check_environment
+    from postprocessing.environment import check_environment, configured_home
 
     try:
-        environment = check_environment(home, args.postprocess_hemi, args.postprocess_atlases)
-    except (OSError, ValueError) as error:
+        environment = check_environment(configured_home(args), args.postprocess_hemi,
+                                        args.postprocess_atlases, backend=args.postprocess_backend)
+    except (OSError, ValueError, RuntimeError) as error:
         message = str(error)
-        hints = FS_INSTALL
+        hints = POSTPROCESS_INSTALL if args.postprocess_runtime is not None or home is None else FS_INSTALL
         if 'license' in message.lower():
             hints = FS_LICENSE
+        elif 'shared librar' in message.lower():
+            hints += ('On Ubuntu/Debian: sudo apt-get install libgomp1 libcrypt1 libstdc++6 zlib1g',
+                      'Use a compatible Linux x86_64 host, or pass --freesurfer-home with a native installation.')
         elif home is not None and 'executable' in message.lower():
             binary = home / 'bin' / message.rsplit(': ', 1)[-1]
             if binary.is_file() and not os.access(binary, os.X_OK):
@@ -235,7 +244,9 @@ def check_freesurfer(report, args):
         report.add('FAIL', 'FreeSurfer postprocessing', message, hints)
     else:
         report.add('OK', 'FreeSurfer postprocessing',
-                   f"{environment['home']}; required tools and atlas files found")
+                   f"{environment['home']}; " +
+                   ('local source build verified; no full installation needed' if environment['minimal_runtime']
+                    else 'required tools and atlas files found'))
         report.add('OK', 'FreeSurfer license file',
                    f"{environment['license_file']} (present and nonempty; validity not tested)")
 
@@ -249,6 +260,8 @@ def parse_args(argv=None):
     parser.add_argument('--auto-mask', action='store_true', help='Also check FreeSurfer SynthStrip')
     parser.add_argument('--post-process', action='store_true', help='Also check FreeSurfer postprocessing')
     parser.add_argument('--freesurfer-home', type=Path, default=os.environ.get('FREESURFER_HOME'))
+    parser.add_argument('--postprocess-runtime', type=Path, help='Use a locally compiled surface runtime.')
+    parser.add_argument('--postprocess-backend', choices=('auto', 'native', 'freesurfer'), default='auto')
     parser.add_argument('--postprocess-hemi', choices=('left', 'right', 'both'), default='both')
     parser.add_argument('--postprocess-atlases', default='aparc,aparc.a2009s')
     return parser.parse_args(argv)

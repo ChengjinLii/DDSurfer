@@ -50,17 +50,40 @@ than inferred from a tissue segmentation.
 
 ## Requirements
 
-| Component | Setup |
+A full FreeSurfer installation is **optional**. Choose one of these routes:
+
+| Route | Setup |
 | --- | --- |
-| FreeSurfer | Configure `FREESURFER_HOME`, `FS_LICENSE` and the installed `fsaverage`. |
-| Python packages | Shared root [`environment.yml`](../environment.yml) or [`requirements.txt`](../requirements.txt). |
-| Surfaces | Left/right white and pial, with matching white/pial topology per hemisphere. |
+| Local source build | Compile the seven original commands once with `python -m postprocessing.core.build --jobs 4`; set `FS_LICENSE`. |
+| Existing FreeSurfer | Set `FREESURFER_HOME` or pass `--freesurfer-home`; the installation supplies its tools and atlas data. |
+| Python packages | Use the shared root [`environment.yml`](../environment.yml) or [`requirements.txt`](../requirements.txt). |
 
-See the root [installation instructions](../README.md#key-dependencies).
+The source build requires a C/C++ compiler, Git and CMake >=3.24,<4. See the
+[build guide](core/README.md) for prerequisites, logs, offline preparation and
+custom install locations. The project supplies [atlas data](assets/README.md),
+**not precompiled executables**. Native components are compiled on the user's
+machine into a checked runtime; no full FreeSurfer suite is installed.
 
-The main pipeline checks the required FreeSurfer executables, license and atlas
-files before preprocessing. These checks are not required for surface inference
-without `--post-process`. Final-result reuse also verifies postprocessing outputs.
+`--backend auto` uses a configured FreeSurfer installation, otherwise completed
+local components. Select `native` or `freesurfer` explicitly to avoid ambiguity.
+`--runtime` overrides the local component directory; the main entry uses
+`--postprocess-backend` and `--postprocess-runtime`. Default local paths are under
+`${XDG_CACHE_HOME:-~/.cache}/ddsurfer/postprocessing/`. Missing or damaged builds
+fail early; normal processing and environment checks never start downloads or
+compilation. Runtime files and scientific parameters are checked before reuse.
+
+Linux is the current local-build validation target. macOS is not yet verified,
+and native Windows is unsupported; WSL2 is a separate Linux route. An existing
+platform-native FreeSurfer installation remains selectable. Recompiling on
+another compiler/platform does not establish numerical parity without testing.
+Optional SynthStrip masking is separate and is not built by this surface-only
+recipe. A valid FreeSurfer activation file is required for either route; local
+compilation does not remove or bypass that requirement. Native code/data retain
+the [FreeSurfer license](assets/LICENSE.txt) and their third-party notices.
+
+The main pipeline checks these requirements before preprocessing when
+`--post-process` is enabled. Surface inference without postprocessing does not
+need these tools. See the root [installation guide](../README.md#key-dependencies).
 
 ---
 
@@ -69,6 +92,7 @@ without `--post-process`. Final-result reuse also verifies postprocessing output
 ### With DDSurfer
 
 ```bash
+export FS_LICENSE=/path/to/license.txt
 python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
 ```
 
@@ -91,10 +115,15 @@ bash postprocessing/run.sh --subject <subID> \
 | `--threads 4` | Total thread budget, shared across hemispheres. |
 | `--serial` | Process hemispheres sequentially instead of in parallel. |
 | `--freesurfer-home <path>` | Override `FREESURFER_HOME`. |
+| `--runtime <path>` | Use locally compiled components from a custom installation directory. |
+| `--backend auto`, `native`, `freesurfer` | Choose automatic selection, a local build, or an existing installation. |
+| `--license-file <path>` | Override `FS_LICENSE` for standalone processing. |
+| `--sphere-seed 1234` | Optional positive random seed; use the same seed for reproducibility comparisons. |
 
 The main pipeline exposes the corresponding `--postprocess-hemi`,
 `--postprocess-atlases`, `--postprocess-threads` and `--postprocess-serial` options.
 Its reference image defaults to the native b0 produced during DTI estimation.
+It also exposes `--postprocess-runtime` and `--postprocess-sphere-seed`.
 
 ---
 
@@ -169,6 +198,7 @@ faster equivalent of every output produced by a full `recon-all` run.
 
 | Improvement | Implementation | Benefit |
 | --- | --- | --- |
+| Local source build | Compiles only the seven original C++ command targets and required base libraries; Python replacements remain in Python. | Makes a full FreeSurfer installation optional. This simplifies deployment scope, not algorithmic iteration counts; initial compilation takes additional CPU time and disk space. |
 | Python regional label export | Replaces `mri_annotation2label` with annotation-based vertex selection and the same label text format. | Removes a FreeSurfer subprocess; 35-label export took **1.13 s -> 0.37 s** in the local comparison. |
 | Shared fsaverage mapping | Packs thickness, curvature, sulcal depth and pial area into one `mri_surf2surf --split` call rather than four calls. | Shares sphere loading and correspondence computation; the checked stage took **13.68 s -> 3.23 s**, about **76% less time**. FreeSurfer still writes the complete MGH metadata. |
 | In-process statistics | Calls the existing Python surface-only table writer directly. | Avoids starting and importing dependencies in another Python interpreter; measurement definitions stay unchanged. |

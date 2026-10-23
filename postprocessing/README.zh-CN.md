@@ -53,17 +53,34 @@
 
 ## 环境与输入要求
 
-| 组件 | 配置要求 |
+完整 FreeSurfer 安装为**可选项**，可选择以下两条路径：
+
+| 路径 | 准备方式 |
 | --- | --- |
-| FreeSurfer | 配置 `FREESURFER_HOME`、`FS_LICENSE` 及安装中的 `fsaverage`。 |
-| Python 包 | 使用根目录统一的 [`environment.yml`](../environment.yml) 或 [`requirements.txt`](../requirements.txt)。 |
-| 皮层表面 | 左右半球的白质与软脑膜表面；同一半球的两份表面须具有一致的拓扑。 |
+| 本机源码构建 | 用 `python -m postprocessing.core.build --jobs 4` 一次性编译七个原始命令，并配置 `FS_LICENSE`。 |
+| 已有 FreeSurfer | 设置 `FREESURFER_HOME` 或传入 `--freesurfer-home`，直接使用其命令和图谱。 |
+| Python 依赖 | 使用根目录的 [`environment.yml`](../environment.yml) 或 [`requirements.txt`](../requirements.txt)。 |
 
-详见根目录的 [依赖配置](../README.zh-CN.md#key-dependencies)。
+源码构建需要 C/C++ 编译器、Git 和 CMake >=3.24,<4。安装指令、日志位置、离线准备和自定义目录
+见[编译指南](core/README.zh-CN.md)。项目提供[图谱数据](assets/README.zh-CN.md)，
+**不提供预编译可执行程序**。组件在用户本机编译并生成经过检查的安装目录，不安装完整 FreeSurfer。
 
-启用后处理时，主流程会在预处理前检查所需的 FreeSurfer 可执行文件、许可证和图谱文件。
-未启用 `--post-process` 的表面推理不需要这些后处理检查。
-复用最终结果时，也会验证后处理输出的完整性。
+`--backend auto` 优先使用已配置的 FreeSurfer，否则使用已经完成的本机组件。
+也可显式选择 `native` 或 `freesurfer`。`--runtime` 可指定自定义本机组件目录；
+主入口对应为 `--postprocess-backend` 和 `--postprocess-runtime`。
+默认缓存位置为 `${XDG_CACHE_HOME:-~/.cache}/ddsurfer/postprocessing/`。
+未编译或组件损坏时会提前报错；普通处理和环境检查不会自行下载或编译。
+复用结果前会检查运行文件及处理参数。
+
+本机编译目前以 Linux 为验证平台。macOS 尚未验证；原生 Windows 不受支持，WSL2 属于
+另一种 Linux 运行方式。也可继续选择本平台已有的 FreeSurfer 安装。
+不同编译器／平台重新编译后，仍须另做数值一致性验证。
+可选 SynthStrip 脑掩膜生成为独立功能，不包含在本构建中。
+两条路径均需要有效的 FreeSurfer 激活文件，本机编译不会移除或绕过该检查。
+原生代码与数据保留 [FreeSurfer 许可证](assets/LICENSE.txt) 及各自第三方声明。
+
+主流程在启用 `--post-process` 时，会在预处理前检查对应依赖。
+仅运行皮层表面推理时不需要这些后处理组件。另见根目录的[安装说明](../README.zh-CN.md#key-dependencies)。
 
 ---
 
@@ -76,6 +93,7 @@
 ### 随 DDSurfer 主流程运行
 
 ```bash
+export FS_LICENSE=/path/to/license.txt
 python3 run_ddsurfer_pipeline.py --subject <subID> --post-process
 ```
 
@@ -100,10 +118,15 @@ bash postprocessing/run.sh --subject <subID> \
 | `--threads 4` | 总线程预算，在左右半球之间分配。 |
 | `--serial` | 顺序处理两个半球，不并行执行。 |
 | `--freesurfer-home <path>` | 覆盖 `FREESURFER_HOME`。 |
+| `--runtime <path>` | 使用自定义安装目录中的本机编译组件。 |
+| `--backend auto`、`native`、`freesurfer` | 自动选择，或显式使用本机组件／已有安装。 |
+| `--license-file <path>` | 独立后处理时覆盖 `FS_LICENSE`。 |
+| `--sphere-seed 1234` | 可选的正整数随机种子；进行可复现性对照时，两组应使用同一种子。 |
 
 主流程对应选项为 `--postprocess-hemi`、`--postprocess-atlases`、
 `--postprocess-threads` 和 `--postprocess-serial`。
 主流程默认使用 DTI 估计阶段得到的原生空间 b0 图像作为参考。
+主入口还提供 `--postprocess-runtime` 和 `--postprocess-sphere-seed`。
 
 ---
 
@@ -184,6 +207,7 @@ DDSurfer 保留 FreeSurfer 的核心皮层表面算法，同时减少外围的�
 
 | 优化措施 | 实现方式 | 收益 |
 | --- | --- | --- |
+| 本机源码构建 | 只编译七个原始 C++ 命令及所需基础库；已由 Python 替换的步骤继续保留。 | 使完整 FreeSurfer 安装变为可选，减少部署范围而非算法迭代数；首次编译会额外占用 CPU 时间和磁盘。 |
 | Python 脑区标签导出 | 根据分区标注选择顶点，按相同标签文本格式写出，替代 `mri_annotation2label`。 | 省去一个 FreeSurfer 子进程；本地测试中，35 个标签的导出耗时由 **1.13 s 降至 0.37 s**。 |
 | 共享 fsaverage 映射 | 将厚度、曲率、沟深和软脑膜表面面积合并为一次 `mri_surf2surf --split` 调用，而不是分别调用四次。 | 共享球面读取及对应关系计算；受测阶段由 **13.68 s 降至 3.23 s**，耗时约减少 **76%**。完整 MGH 元数据仍由 FreeSurfer 写出。 |
 | 进程内统计 | 直接调用已有的 Python 表面统计表写入函数。 | 避免启动另一个 Python 解释器及重复导入依赖；测量定义不变。 |

@@ -23,7 +23,7 @@ import numpy as np
 from utils.files import atomic_json, sha256_file
 from utils.stages import StageCache, subject_lock
 from postprocessing.geometry import load_pair, prepare_brain, prepare_surface_reference, vertex_area, volume_files, write_surface
-from postprocessing.environment import check_environment
+from postprocessing.environment import check_environment, configured_home
 from postprocessing.labels import read_regions, write_labels
 from postprocessing.overlays import FIELDS, copy_frames, write_stack
 from postprocessing.stats import read_measurements, write_stats
@@ -44,6 +44,12 @@ def parse_args(argv=None):
     parser.add_argument('--hemi', choices=('left', 'right', 'both'), default='both')
     parser.add_argument('--atlases', default='aparc,aparc.a2009s')
     parser.add_argument('--freesurfer-home', type=Path, default=os.environ.get('FREESURFER_HOME'))
+    parser.add_argument('--backend', choices=('auto', 'native', 'freesurfer'), default='auto',
+                        help='Use a local source build or an existing FreeSurfer installation.')
+    parser.add_argument('--runtime', '--core-runtime', dest='core_runtime', type=Path,
+                        help='Use a locally compiled surface runtime instead of a full installation.')
+    parser.add_argument('--license-file', type=Path, help='Private activation file; otherwise use FS_LICENSE.')
+    parser.add_argument('--sphere-seed', type=int, help='Optional positive seed for reproducible sphere comparisons.')
     parser.add_argument('--threads', type=int, default=4)
     parser.add_argument('--serial', action='store_true', help='Process hemispheres sequentially.')
     return parser.parse_args(argv)
@@ -61,7 +67,14 @@ def run_locked(args):
         raise ValueError('Invalid subject identifier')
     if args.threads < 1:
         raise ValueError('--threads must be positive')
-    environment = check_environment(args.freesurfer_home, args.hemi, args.atlases)
+    sphere_seed = getattr(args, 'sphere_seed', None)
+    if sphere_seed is not None and not 0 < sphere_seed < 2 ** 31:
+        raise ValueError('--sphere-seed must be a positive 32-bit integer')
+    runtime = getattr(args, 'core_runtime', None)
+    if runtime is not None and not (runtime / 'runtime.json').is_file():
+        raise ValueError('--runtime requires a local build with a runtime.json manifest')
+    environment = check_environment(configured_home(args), args.hemi, args.atlases,
+                                    license_file=getattr(args, 'license_file', None), backend=args.backend)
     home = environment['home']
     root = args.output_root.resolve()
     hemis = environment['hemis']
@@ -96,6 +109,8 @@ def run_locked(args):
                      metrics=metric_binary, threads=args.threads, serial=args.serial,
                      reference_orientation='LIA',
                      reference_content='native_MRI' if args.brain_source is not None else 'geometry_only')
+    if sphere_seed is not None:
+        signature['sphere_seed'] = sphere_seed
     subject_dir = root / args.subject
     signature_path = subject_dir / 'logs/inputs.json'
     if any((subject_dir / name).exists() for name in ('mri', 'surf', 'label', 'stats', 'fsaverage')) and not signature_path.exists():
@@ -121,6 +136,11 @@ def run_locked(args):
                PATH=str(home / 'bin') + os.pathsep + os.environ.get('PATH', ''),
                OMP_NUM_THREADS=str(per_hemi_threads), ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=str(per_hemi_threads),
                OPENBLAS_NUM_THREADS='1')
+    if environment['minimal_runtime']:
+        # Avoid private libraries and commands from an unrelated full installation.
+        for name in ('LD_LIBRARY_PATH', 'LD_PRELOAD', 'LD_AUDIT'):
+            env.pop(name, None)
+        env['PATH'] = str(home / 'bin') + os.pathsep + os.defpath
     log_path = subject_dir / 'logs/postprocess.log'
     completed_path = subject_dir / 'logs/completed.json'
     done = json.loads(completed_path.read_text()) if completed_path.exists() else {}
@@ -134,6 +154,9 @@ def run_locked(args):
               reference_content=signature['reference_content'], hemispheres={})
 
     def run_command(key, command):
+        command = list(command)
+        if environment['minimal_runtime'] and command[0] != sys.executable:
+            command[0] = home / 'bin' / command[0]
         stage_log = subject_dir / 'logs' / f'{key.split(".")[0]}.log'
         with stage_log.open('a') as log:
             message = f'[run] {key}: {shlex.join([str(v) for v in command])}'
@@ -254,7 +277,10 @@ def run_locked(args):
                 [surf / f'{hemi}.inflated', surf / f'{hemi}.sulc'], [surf / f'{hemi}.white'])
         execute(f'{hemi}.inflated.curvature', ['mris_curvature', '-w', surf / f'{hemi}.inflated'],
                 [surf / f'{hemi}.inflated.H', surf / f'{hemi}.inflated.K'], [surf / f'{hemi}.inflated'])
-        execute(f'{hemi}.sphere', ['mris_sphere', surf / f'{hemi}.inflated', surf / f'{hemi}.sphere'],
+        sphere_command = ['mris_sphere']
+        if sphere_seed is not None:
+            sphere_command += ['-seed', str(sphere_seed)]
+        execute(f'{hemi}.sphere', sphere_command + [surf / f'{hemi}.inflated', surf / f'{hemi}.sphere'],
                 [surf / f'{hemi}.sphere'], [surf / f'{hemi}.inflated'])
         execute(f'{hemi}.register', ['mris_register', '-curv', surf / f'{hemi}.sphere',
                 home / 'average' / f'{hemi}.average.curvature.filled.buckner40.tif', surf / f'{hemi}.sphere.reg'],
